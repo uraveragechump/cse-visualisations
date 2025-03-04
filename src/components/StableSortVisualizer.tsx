@@ -20,18 +20,18 @@ const StableSortVisualizer: React.FC = () => {
     const [unstableSortSteps, setUnstableSortSteps] = useState<SortStep[]>([]);
     const [stableCurrentStep, setStableCurrentStep] = useState(0);
     const [unstableCurrentStep, setUnstableCurrentStep] = useState(0);
-    const [isAnimating, setIsAnimating] = useState(false);
-    const [showUnstable, setShowUnstable] = useState(false);
+    const [isStableAnimating, setIsStableAnimating] = useState(false);
+    const [isUnstableAnimating, setIsUnstableAnimating] = useState(false);
 
     // Generate initial dataset with one pair of duplicate keys
     useEffect(() => {
         const initialCards: Card[] = [
-            { key: 5, id: 1, color: '#FF5733' },
-            { key: 3, id: 2, color: '#33FF57' },
-            { key: 4, id: 3, color: '#3357FF' }, // First card with key=4
-            { key: 1, id: 4, color: '#F3FF33' },
-            { key: 4, id: 5, color: '#FF33F6' }, // Second card with key=4
-            { key: 2, id: 6, color: '#33FFF6' },
+            { key: 5, id: 1, color: '#D84315' },  // Darker orange
+            { key: 3, id: 2, color: '#2E7D32' },  // Darker green
+            { key: 4, id: 3, color: '#303F9F' },  // Darker blue
+            { key: 1, id: 4, color: '#F9A825' },  // Muted gold instead of bright yellow
+            { key: 4, id: 5, color: '#7B1FA2' },  // Purple
+            { key: 2, id: 6, color: '#00796B' },  // Darker teal
         ];
         setCards(initialCards);
 
@@ -151,13 +151,11 @@ const StableSortVisualizer: React.FC = () => {
         return steps;
     };
 
-    const runSortingDemo = () => {
-        if (isAnimating) return;
+    const runStableSort = () => {
+        if (isStableAnimating) return;
 
-        setIsAnimating(true);
+        setIsStableAnimating(true);
         setStableCurrentStep(0);
-        setUnstableCurrentStep(0);
-        setShowUnstable(false);
 
         // Animate stable sort
         let stableStep = 0;
@@ -167,65 +165,156 @@ const StableSortVisualizer: React.FC = () => {
                 setStableCurrentStep(stableStep);
             } else {
                 clearInterval(stableTimer);
+                setIsStableAnimating(false);
+            }
+        }, 1000);
+    };
 
-                // After stable sort finishes, start unstable sort with a delay
-                setTimeout(() => {
-                    setShowUnstable(true);
+    const runUnstableSort = () => {
+        if (isUnstableAnimating) return;
 
-                    // Animate unstable sort
-                    let unstableStep = 0;
-                    const unstableTimer = setInterval(() => {
-                        if (unstableStep < unstableSortSteps.length - 1) {
-                            unstableStep++;
-                            setUnstableCurrentStep(unstableStep);
-                        } else {
-                            clearInterval(unstableTimer);
-                            setIsAnimating(false);
-                        }
-                    }, 1000);
-                }, 2000);
+        setIsUnstableAnimating(true);
+        setUnstableCurrentStep(0);
+
+        // Animate unstable sort
+        let unstableStep = 0;
+        const unstableTimer = setInterval(() => {
+            if (unstableStep < unstableSortSteps.length - 1) {
+                unstableStep++;
+                setUnstableCurrentStep(unstableStep);
+            } else {
+                clearInterval(unstableTimer);
+                setIsUnstableAnimating(false);
             }
         }, 1000);
     };
 
     const resetDemo = () => {
-        setIsAnimating(false);
+        setIsStableAnimating(false);
+        setIsUnstableAnimating(false);
         setStableCurrentStep(0);
         setUnstableCurrentStep(0);
-        setShowUnstable(false);
     };
 
-    const stepForward = () => {
-        if (isAnimating) return;
+    const stepForwardStable = () => {
+        if (isStableAnimating) return;
 
-        if (!showUnstable && stableCurrentStep < stableSortSteps.length - 1) {
+        if (stableCurrentStep < stableSortSteps.length - 1) {
             setStableCurrentStep(prevStep => prevStep + 1);
-        } else if (showUnstable && unstableCurrentStep < unstableSortSteps.length - 1) {
+        }
+    };
+
+    const stepBackwardStable = () => {
+        if (isStableAnimating) return;
+
+        if (stableCurrentStep > 0) {
+            setStableCurrentStep(prevStep => prevStep - 1);
+        }
+    };
+
+    const stepForwardUnstable = () => {
+        if (isUnstableAnimating) return;
+
+        if (unstableCurrentStep < unstableSortSteps.length - 1) {
             setUnstableCurrentStep(prevStep => prevStep + 1);
         }
     };
 
-    const stepBackward = () => {
-        if (isAnimating) return;
+    const stepBackwardUnstable = () => {
+        if (isUnstableAnimating) return;
 
-        if (!showUnstable && stableCurrentStep > 0) {
-            setStableCurrentStep(prevStep => prevStep - 1);
-        } else if (showUnstable && unstableCurrentStep > 0) {
+        if (unstableCurrentStep > 0) {
             setUnstableCurrentStep(prevStep => prevStep - 1);
         }
     };
 
     const renderCards = (cardArr: Card[], highlightIndices?: [number, number]) => {
-        return cardArr.map((card, index) => (
-            <div
-                key={card.id}
-                className={`card ${highlightIndices?.includes(index) ? 'highlighted' : ''}`}
-                style={{ backgroundColor: card.color }}
-            >
-                <div className="card-key">{card.key}</div>
-                <div className="card-id">ID: {card.id}</div>
-            </div>
-        ));
+        // Find duplicate keys in the array
+        const keyFrequency: Record<number, number> = {};
+        const duplicateKeys: Set<number> = new Set();
+
+        cardArr.forEach(card => {
+            keyFrequency[card.key] = (keyFrequency[card.key] || 0) + 1;
+            if (keyFrequency[card.key] > 1) {
+                duplicateKeys.add(card.key);
+            }
+        });
+
+        // Reset counter for the arrows
+        const arrowInstanceCount: Record<number, number> = {};
+
+        // Show a label above the visualization if there are duplicate keys
+        const hasDuplicates = Array.from(duplicateKeys).length > 0;
+
+        return (
+            <>
+                {hasDuplicates && (
+                    <div className="text-center text-gray-600 text-sm font-semibold mb-2">
+                        Cards with same key value have arrows below them
+                    </div>
+                )}
+
+                {/* Card container with built-in arrows */}
+                <div className="card-container">
+                    {cardArr.map((card, index) => {
+                        // Check if this card has a duplicate key
+                        let showArrow = false;
+                        let arrowInstanceNum = 0;
+
+                        if (duplicateKeys.has(card.key)) {
+                            // Count for the arrow
+                            showArrow = true;
+                            arrowInstanceCount[card.key] = (arrowInstanceCount[card.key] || 0) + 1;
+                            arrowInstanceNum = arrowInstanceCount[card.key];
+                        }
+
+                        const isHighlighted = highlightIndices?.includes(index);
+
+                        return (
+                            <div key={card.id} className="flex flex-col items-center" style={{ margin: '0 5px' }}>
+                                {/* Card */}
+                                <div
+                                    className={`card ${isHighlighted ? 'highlighted' : ''}`}
+                                    style={{ backgroundColor: card.color, marginBottom: '5px' }}
+                                >
+                                    <div className="card-key">
+                                        {card.key}
+                                    </div>
+                                    <div className="card-id">ID: {card.id}</div>
+                                </div>
+
+                                {/* Arrow space - shows arrow for duplicate keys, empty for others */}
+                                <div className="h-8 flex items-center justify-center">
+                                    {showArrow && (
+                                        <div className="text-center">
+                                            <div
+                                                className="text-xl"
+                                                style={{
+                                                    color: card.color,
+                                                    fontWeight: 'bold',
+                                                    textShadow: '0px 0px 3px rgba(0,0,0,0.7)',
+                                                    lineHeight: 1
+                                                }}
+                                            >
+                                                ↑
+                                            </div>
+                                            <div style={{
+                                                color: card.color,
+                                                fontWeight: 'bold',
+                                                fontSize: '10px',
+                                                textShadow: '0px 0px 1px rgba(0,0,0,0.7)'
+                                            }}>
+                                                #{arrowInstanceNum}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </>
+        );
     };
 
     return (
@@ -234,78 +323,97 @@ const StableSortVisualizer: React.FC = () => {
                 <div className="mb-6 text-center">
                     <h1 className="text-2xl font-bold mb-2">Sorting Algorithm Stability Visualizer</h1>
                     <p className="text-gray-600 mb-4">
-                        {showUnstable
-                            ? "Selection Sort (Unstable) - Notice how elements with the same key may change relative order"
-                            : "Insertion Sort (Stable) - Notice how elements with the same key maintain relative order"}
+                        Compare stable and unstable sorting algorithms
                     </p>
-                    <div className="space-x-4">
-                        <button
-                            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-                            onClick={runSortingDemo}
-                            disabled={isAnimating}
-                        >
-                            Run Demo
-                        </button>
-                        <button
+                    <div className="space-x-4 mb-4">
+                        <button 
                             className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50"
                             onClick={resetDemo}
-                            disabled={isAnimating}
+                            disabled={isStableAnimating || isUnstableAnimating}
                         >
-                            Reset
-                        </button>
-                        <button
-                            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
-                            onClick={stepForward}
-                            disabled={isAnimating ||
-                                (!showUnstable && stableCurrentStep >= stableSortSteps.length - 1) ||
-                                (showUnstable && unstableCurrentStep >= unstableSortSteps.length - 1)}
-                        >
-                            Step Forward
-                        </button>
-                        <button
-                            className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50"
-                            onClick={stepBackward}
-                            disabled={isAnimating ||
-                                (!showUnstable && stableCurrentStep <= 0) ||
-                                (showUnstable && unstableCurrentStep <= 0)}
-                        >
-                            Step Back
+                            Reset All
                         </button>
                     </div>
                 </div>
 
                 <div className="visualization-container">
                     <div className="array-container">
-                        <h3>Stable Sort (Insertion Sort)</h3>
-                        <div className="step-description">
+                        <h3 className="text-xl font-semibold mb-2">Stable Sort (Insertion Sort)</h3>
+                        <div className="mb-4 flex justify-center space-x-3">
+                            <button 
+                                className="px-3 py-1 bg-blue-400 text-white rounded hover:bg-blue-500 disabled:opacity-50"
+                                onClick={runStableSort}
+                                disabled={isStableAnimating}
+                            >
+                                Run Insertion Sort
+                            </button>
+                            <button 
+                                className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
+                                onClick={stepForwardStable}
+                                disabled={isStableAnimating || stableCurrentStep >= stableSortSteps.length - 1}
+                            >
+                                Step Forward
+                            </button>
+                            <button 
+                                className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50"
+                                onClick={stepBackwardStable}
+                                disabled={isStableAnimating || stableCurrentStep <= 0}
+                            >
+                                Step Back
+                            </button>
+                        </div>
+                        <div className="step-description bg-blue-50 p-2 rounded mb-3">
                             {stableSortSteps[stableCurrentStep]?.description || ""}
                         </div>
-                        <div className="card-container">
-                            {stableSortSteps[stableCurrentStep] &&
-                                renderCards(
-                                    stableSortSteps[stableCurrentStep].array,
-                                    stableSortSteps[stableCurrentStep].swappedIndices
-                                )
-                            }
+                        {stableSortSteps[stableCurrentStep] &&
+                            renderCards(
+                                stableSortSteps[stableCurrentStep].array,
+                                stableSortSteps[stableCurrentStep].swappedIndices
+                            )
+                        }
+                        <div className="text-sm text-gray-600 mt-2 text-center">
+                            Step {stableCurrentStep + 1} of {stableSortSteps.length}
                         </div>
                     </div>
+                </div>
 
-                    {showUnstable && (
-                        <div className="array-container">
-                            <h3>Unstable Sort (Selection Sort)</h3>
-                            <div className="step-description">
-                                {unstableSortSteps[unstableCurrentStep]?.description || ""}
-                            </div>
-                            <div className="card-container">
-                                {unstableSortSteps[unstableCurrentStep] &&
-                                    renderCards(
-                                        unstableSortSteps[unstableCurrentStep].array,
-                                        unstableSortSteps[unstableCurrentStep].swappedIndices
-                                    )
-                                }
-                            </div>
-                        </div>
-                    )}
+                <div className="array-container mt-8">
+                    <h3 className="text-xl font-semibold mb-2">Unstable Sort (Selection Sort)</h3>
+                    <div className="mb-4 flex justify-center space-x-3">
+                        <button
+                            className="px-3 py-1 bg-blue-400 text-white rounded hover:bg-blue-500 disabled:opacity-50"
+                            onClick={runUnstableSort}
+                            disabled={isUnstableAnimating}
+                        >
+                            Run Selection Sort
+                        </button>
+                        <button
+                            className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
+                            onClick={stepForwardUnstable}
+                            disabled={isUnstableAnimating || unstableCurrentStep >= unstableSortSteps.length - 1}
+                        >
+                            Step Forward
+                        </button>
+                        <button
+                            className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50"
+                            onClick={stepBackwardUnstable}
+                            disabled={isUnstableAnimating || unstableCurrentStep <= 0}
+                        >
+                            Step Back
+                        </button>
+                    </div>
+                    <div className="step-description bg-purple-50 p-2 rounded mb-3">
+                        {unstableSortSteps[unstableCurrentStep]?.description || ""}
+                    </div>
+                    {unstableSortSteps[unstableCurrentStep] &&
+                        renderCards(
+                            unstableSortSteps[unstableCurrentStep].array,
+                            unstableSortSteps[unstableCurrentStep].swappedIndices
+                        )
+                    }
+                    <div className="text-sm text-gray-600 mt-2 text-center">
+                        Step {unstableCurrentStep + 1} of {unstableSortSteps.length}
+                    </div>
                 </div>
             </div>
         </div>
