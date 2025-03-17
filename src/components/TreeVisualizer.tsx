@@ -409,9 +409,17 @@ const TreeVisualizer: React.FC = () => {
             const isLeft = dx < 0;
             const isChild = dy > 0;
 
-            // Only show preview for adding children, or if node has no parent in the tree
-            if (!isChild) {
-                // Check if this node already has a parent (if it's already a child of another node)
+            // Only show preview for adding children if the position is not already occupied
+            if (isChild) {
+                // Check if the corresponding child position is already occupied
+                if ((isLeft && nodeForPreview.left) || (!isLeft && nodeForPreview.right)) {
+                    // Position is already occupied, don't show preview
+                    setPreviewNode(null);
+                    setPreviewLink(null);
+                    return;
+                }
+            } else {
+            // For parent connections, check if this node already has a parent
                 const hasParent = nodes.some(n =>
                     (n.left && n.left.id === nodeForPreview.id) ||
                     (n.right && n.right.id === nodeForPreview.id)
