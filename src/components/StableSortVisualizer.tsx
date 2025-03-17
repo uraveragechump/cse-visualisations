@@ -5,6 +5,7 @@ interface Card {
     key: number;     // Primary sort key (e.g., value)
     id: number;      // Secondary attribute (unique identifier)
     color: string;   // For visual distinction
+    instanceNum?: number; // Instance number for duplicate keys
 }
 
 // For animation purposes - captures each step of the sorting process
@@ -25,6 +26,7 @@ const StableSortVisualizer: React.FC = () => {
 
     // Generate initial dataset with one pair of duplicate keys
     useEffect(() => {
+        // Initial cards without instance numbers
         const initialCards: Card[] = [
             { key: 5, id: 1, color: '#D84315' },  // Darker orange
             { key: 3, id: 2, color: '#2E7D32' },  // Darker green
@@ -33,11 +35,24 @@ const StableSortVisualizer: React.FC = () => {
             { key: 4, id: 5, color: '#7B1FA2' },  // Purple
             { key: 2, id: 6, color: '#00796B' },  // Darker teal
         ];
-        setCards(initialCards);
+
+        // Find duplicate keys and assign instance numbers
+        const keyInstanceCount: Record<number, number> = {};
+        const cardsWithInstances = initialCards.map(card => {
+            // For each card, check if its key has been seen before
+            // If it has, increment the instance count and assign it
+            keyInstanceCount[card.key] = (keyInstanceCount[card.key] || 0) + 1;
+            return {
+                ...card,
+                instanceNum: keyInstanceCount[card.key]
+            };
+        });
+
+        setCards(cardsWithInstances);
 
         // Pre-calculate sort steps
-        const stableSteps = generateInsertionSortSteps([...initialCards]);
-        const unstableSteps = generateSelectionSortSteps([...initialCards]);
+        const stableSteps = generateInsertionSortSteps([...cardsWithInstances]);
+        const unstableSteps = generateSelectionSortSteps([...cardsWithInstances]);
 
         setStableSortSteps(stableSteps);
         setUnstableSortSteps(unstableSteps);
@@ -240,9 +255,6 @@ const StableSortVisualizer: React.FC = () => {
             }
         });
 
-        // Reset counter for the arrows
-        const arrowInstanceCount: Record<number, number> = {};
-
         // Show a label above the visualization if there are duplicate keys
         const hasDuplicates = Array.from(duplicateKeys).length > 0;
 
@@ -259,13 +271,9 @@ const StableSortVisualizer: React.FC = () => {
                     {cardArr.map((card, index) => {
                         // Check if this card has a duplicate key
                         let showArrow = false;
-                        let arrowInstanceNum = 0;
 
                         if (duplicateKeys.has(card.key)) {
-                            // Count for the arrow
                             showArrow = true;
-                            arrowInstanceCount[card.key] = (arrowInstanceCount[card.key] || 0) + 1;
-                            arrowInstanceNum = arrowInstanceCount[card.key];
                         }
 
                         const isHighlighted = highlightIndices?.includes(index);
@@ -304,7 +312,7 @@ const StableSortVisualizer: React.FC = () => {
                                                 fontSize: '10px',
                                                 textShadow: '0px 0px 1px rgba(0,0,0,0.7)'
                                             }}>
-                                                #{arrowInstanceNum}
+                                                #{card.instanceNum}
                                             </div>
                                         </div>
                                     )}
