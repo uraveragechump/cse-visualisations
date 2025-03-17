@@ -20,6 +20,7 @@ This app allows tutors to create and manipulate Tree nodes visually
   - Clicking below and to the right creates a child node with a larger value, defaulting to twice the value of the parent node.
   - Clicking above and to the left creates a parent node with a smaller value, defaulting to half the value of the parent node.
   - Clicking above and to the right creates a parent node with a larger value, defaulting to twice the value of the parent node.
+  - Right clicking a leaf node deletes that node (and corresponding links)
 - A tutor can quickly reposition subtrees:
   - Dragging an existing node will drag the subtree along with it.
 - A tutor can quickly perform rebalancing rotations on nodes
