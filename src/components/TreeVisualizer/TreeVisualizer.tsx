@@ -46,8 +46,8 @@ const TreeVisualizer: React.FC = () => {
 
     // Refs
     const svgRef = useRef<SVGSVGElement>(null);
-    const svgWidth = 800;
-    const svgHeight = 600;
+    const svgWidth = 1100;
+    const svgHeight = 800;
 
     // Update links whenever node structure changes
     useEffect(() => {
@@ -797,25 +797,29 @@ const TreeVisualizer: React.FC = () => {
 
     return (
         <div className="tree-visualizer">
-            <h1 className="text-2xl font-bold mb-4">Binary Search Tree Visualizer</h1>
-            <p className="mb-4">
-                Click anywhere to create a root node. Click near an existing node to create connected nodes.
-                Drag nodes to reposition. Hover near a node to see rotation options.
-                Right-click on a leaf node (node without children) to delete it.
-            </p>
-            <svg
-                ref={svgRef}
-                width={svgWidth}
-                height={svgHeight}
-                className="border border-gray-300 rounded bg-gray-50"
-                onClick={handleClick}
-                onMouseMove={handleMouseMove}
-                onContextMenu={(e) => e.preventDefault()} // Prevent context menu on svg background
-            >
-                {renderLinks()}
-                {renderNodes()}
-                {renderPreviewNode()}
-            </svg>
+            <div className="p-6 bg-gray-100 rounded-lg shadow-lg">
+                <h1 className="text-2xl font-bold mb-4">Binary Search Tree Visualizer</h1>
+                <p className="mb-4">
+                    Click anywhere to create a root node. Click near an existing node to create connected nodes.
+                    Drag nodes to reposition. Hover near a node to see rotation options.
+                    Right-click on a leaf node (node without children) to delete it.
+                </p>
+                <svg
+                    ref={svgRef}
+                    width={svgWidth}
+                    height={svgHeight}
+                    style={{ margin: "auto" }}
+                    viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+                    className="border border-gray-300 rounded bg-gray-50"
+                    onClick={handleClick}
+                    onMouseMove={handleMouseMove}
+                    onContextMenu={(e) => e.preventDefault()} // Prevent context menu on svg background
+                >
+                    {renderLinks()}
+                    {renderNodes()}
+                    {renderPreviewNode()}
+                </svg>
+            </div>
         </div>
     );
 };
