@@ -1,0 +1,115 @@
+---
+description: Development Guidelines
+globs: "src/**/*.{ts,tsx,js,jsx}"
+alwaysApply: true
+---
+
+# Development Guidelines
+
+Standards for code quality, linter issues, and running commands in this project.
+
+<rule>
+name: linter_handling
+description: Guidelines for addressing TypeScript linter issues
+
+actions:
+  - type: suggest
+    message: |
+      ## Handling Linter Issues
+      
+      - Fix TypeScript linter issues with standard approaches (adding proper type guards, optional chaining, etc.)
+      - Do not take extreme measures like creating new files from scratch to fix linter issues
+      - Make incremental changes and focus on addressing the specific error messages
+      - If a linter error persists after 2-3 attempts, prioritize functionality over fixing every linter warning
+      
+      ### Recommended approaches:
+      - Use optional chaining: `object?.property`
+      - Add type guards: `if (variable) { ... }`
+      - Use non-null assertion only when you're certain: `variable!.property`
+      - Add explicit type annotations when needed
+
+examples:
+  - input: |
+      // Bad approach: Creating a completely new file
+      // Good approach: Adding proper type checks
+      if (node.right) {
+        const rightChildIndex = newNodes.findIndex(n => n.id === node.right.id);
+        if (rightChildIndex !== -1) {
+          // Safe to use node.right here
+        }
+      }
+  - output: "Using proper type checking"
+
+metadata:
+  priority: high
+  version: 1.0
+</rule>
+
+<rule>
+name: command_execution
+description: Guidelines for running commands in this project
+
+actions:
+  - type: suggest
+    message: |
+      ## Running Commands
+      
+      - `yarn build` is acceptable for testing the build
+      - Do not run `yarn start` or development server commands
+      - Prefer static code analysis and explicit testing over running development servers
+      
+      ### Recommended practices:
+      - When testing changes, use `yarn build` to verify compilation
+      - Rely on TypeScript's type checking and linting for validation
+      - Do not depend on running the application to verify functionality
+
+examples:
+  - input: |
+      // Acceptable command
+      yarn build
+      
+      // Not recommended
+      yarn start
+      yarn dev
+  - output: "Using appropriate commands"
+
+metadata:
+  priority: high
+  version: 1.0
+</rule>
+
+<rule>
+name: code_style
+description: Guidelines for maintaining consistent code style
+
+actions:
+  - type: suggest
+    message: |
+      ## Code Style
+      
+      - Follow the existing patterns in the codebase
+      - Use TypeScript features like optional chaining (?.) for handling potentially undefined values
+      - Ensure tree structure is maintained through proper node references
+      - Maintain the React/D3 pattern where D3 handles calculations and React handles rendering
+      
+      ### Binary Search Tree Implementation:
+      - Maintain downward references (parent to children) without bidirectional parent references
+      - Use ID-based lookups when parent information is needed
+      - Ensure proper cloning of objects when modifying the tree structure
+
+examples:
+  - input: |
+      // Good: Proper node reference handling
+      const updatedNodes = nodes.map(node => ({ ...node }));
+      
+      // Find parent using ID-based lookup
+      const parentIndex = updatedNodes.findIndex(n => 
+        (n.left && n.left.id === nodeId) || 
+        (n.right && n.right.id === nodeId)
+      );
+  - output: "Following proper BST implementation patterns"
+
+metadata:
+  priority: medium
+  version: 1.0
+</rule> 
