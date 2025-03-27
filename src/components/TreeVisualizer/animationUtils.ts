@@ -62,12 +62,9 @@ const AnimationUtils = {
     ): d3.Simulation<d3.SimulationNodeDatum, undefined> => {
         // Setup force simulation
         const simulation = d3.forceSimulation(simNodes as d3.SimulationNodeDatum[])
-            // *** START EDIT 1 ***
-            // .alphaTarget(0) // Keep alpha decaying naturally
             .alphaDecay(0.03) // Keep existing decay
             .alphaMin(0.1) // Set a minimum alpha threshold for automatic stopping
             .velocityDecay(0.3) // Keep existing velocity decay
-            // *** END EDIT 1 ***
             .force('target', AnimationUtils.createTargetForce());
 
         // Handle simulation ticks
@@ -78,16 +75,9 @@ const AnimationUtils = {
             // Call custom tick handler (if needed for other effects)
             onTick(simNodes);
 
-            // *** START EDIT 2 ***
-            // Remove the convergence check from here
-            // if (AnimationUtils.hasSimulationConverged(simNodes)) {
-            //     simulation.stop();
-            //     // ... logic moved to 'end' event ...
-            // }
-            // *** END EDIT 2 ***
+            // Convergence check removed, relying on 'end' event
         });
 
-        // *** START EDIT 3 ***
         // Handle simulation end event
         simulation.on('end', () => {
             console.log("Simulation ended."); // Debug log
@@ -107,7 +97,6 @@ const AnimationUtils = {
             // Call the original completion callback
             onComplete();
         });
-        // *** END EDIT 3 ***
 
         // Start the simulation
         simulation.alpha(0.8).restart(); // Start with high alpha
