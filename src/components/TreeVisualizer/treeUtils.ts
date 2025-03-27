@@ -49,6 +49,73 @@ const TreeUtils = {
     // Generate a unique ID for a node
     generateId: (): string => {
         return `node-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    },
+
+    // Find a node by ID and return both the node and its index
+    findNodeById: (nodes: TreeNode[], nodeId: string): { node: TreeNode, index: number } | null => {
+        const index = nodes.findIndex(n => n.id === nodeId);
+        if (index === -1) return null;
+        return { node: nodes[index], index };
+    },
+
+    // Find a node by ID, copy it, and update the array with the copy
+    // Returns the copied node and its index, or null if not found
+    findAndCopyNode: (nodes: TreeNode[], nodeId: string): { node: TreeNode, index: number } | null => {
+        const result = TreeUtils.findNodeById(nodes, nodeId);
+        if (!result) return null;
+
+        // Create a copy of the node
+        const nodeCopy = { ...result.node };
+        // Update the array with the copy
+        nodes[result.index] = nodeCopy;
+
+        return { node: nodeCopy, index: result.index };
+    },
+
+    // Find a node's child by property name ('left' or 'right')
+    // Returns the child node and its index, or null if not found
+    findChildNode: (
+        nodes: TreeNode[],
+        parentNode: TreeNode,
+        childProperty: 'left' | 'right'
+    ): { node: TreeNode, index: number } | null => {
+        if (!parentNode[childProperty]) return null;
+
+        const childId = parentNode[childProperty]?.id;
+        if (!childId) return null;
+
+        return TreeUtils.findNodeById(nodes, childId);
+    },
+
+    // Find and copy a node's child
+    findAndCopyChildNode: (
+        nodes: TreeNode[],
+        parentNode: TreeNode,
+        childProperty: 'left' | 'right'
+    ): { node: TreeNode, index: number } | null => {
+        const result = TreeUtils.findChildNode(nodes, parentNode, childProperty);
+        if (!result) return null;
+
+        // Create a copy of the child node
+        const childCopy = { ...result.node };
+        // Update the array with the copy
+        nodes[result.index] = childCopy;
+
+        return { node: childCopy, index: result.index };
+    },
+
+    // Safely get a node by its ID, with detailed error logging
+    safeGetNodeById: (
+        nodes: TreeNode[],
+        nodeId: string,
+        context: string = 'operation'
+    ): TreeNode | null => {
+        const result = TreeUtils.findNodeById(nodes, nodeId);
+        if (!result) {
+            console.error(`Node with ID ${nodeId} not found during ${context}`);
+            return null;
+        }
+        return result.node;
     }
 };
 

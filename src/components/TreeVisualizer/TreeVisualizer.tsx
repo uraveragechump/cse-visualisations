@@ -3,7 +3,7 @@ import * as d3 from 'd3';
 import './TreeVisualizer.css';
 import AnimationUtils from './animationUtils';
 import TreeUtils from './treeUtils';
-import { TreeNode, LinkData, AnimatedLinkData, Position, PreviewNode, RotationDirection } from './types';
+import { TreeNode, LinkData, AnimatedLinkData, Position, PreviewNode, RotationDirection, SimulationNode } from './types';
 import { RenderUtils, Node, Link, RotationControls } from './components';
 
 // Props for Node component
@@ -281,17 +281,17 @@ const TreeVisualizer: React.FC = () => {
             };
 
             // Find parent node
-            const parentNode = nodes.find(n => n.id === previewNode.parentId);
+            const parentNodeResult = TreeUtils.findNodeById(nodes, previewNode.parentId);
 
-            if (parentNode) {
+            if (parentNodeResult) {
+                const parentNode = parentNodeResult.node;
+
                 // Create a deep copy of the nodes array with updated references
                 const updatedNodes = [...nodes];
-                const parentIndex = updatedNodes.findIndex(n => n.id === parentNode.id);
+                const parentResult = TreeUtils.findAndCopyNode(updatedNodes, parentNode.id);
 
-                if (parentIndex !== -1) {
-                    // Create a copy of the parent to avoid modifying the original
-                    const updatedParent = { ...updatedNodes[parentIndex] };
-                    updatedNodes[parentIndex] = updatedParent;
+                if (parentResult) {
+                    const updatedParent = parentResult.node;
 
                     // Update parent-child relationships
                     if (previewNode.isChild) {
@@ -304,26 +304,25 @@ const TreeVisualizer: React.FC = () => {
                     } else {
                         // Adding as a parent
                         // Find if the node has a parent already
-                        let grandparentIndex = -1;
+                        let grandparentResult = null;
                         let isLeftChild = false;
 
-                        for (let i = 0; i < updatedNodes.length; i++) {
-                            if (updatedNodes[i]?.left && updatedNodes[i]?.left?.id === updatedParent.id) {
-                                grandparentIndex = i;
+                        for (const node of updatedNodes) {
+                            if (node.left && node.left.id === updatedParent.id) {
+                                grandparentResult = TreeUtils.findAndCopyNode(updatedNodes, node.id);
                                 isLeftChild = true;
                                 break;
                             }
-                            if (updatedNodes[i]?.right && updatedNodes[i]?.right?.id === updatedParent.id) {
-                                grandparentIndex = i;
+                            if (node.right && node.right.id === updatedParent.id) {
+                                grandparentResult = TreeUtils.findAndCopyNode(updatedNodes, node.id);
                                 isLeftChild = false;
                                 break;
                             }
                         }
 
                         // Update grandparent's reference if exists
-                        if (grandparentIndex !== -1) {
-                            const updatedGrandparent = { ...updatedNodes[grandparentIndex] };
-                            updatedNodes[grandparentIndex] = updatedGrandparent;
+                        if (grandparentResult) {
+                            const updatedGrandparent = grandparentResult.node;
 
                             if (isLeftChild) {
                                 updatedGrandparent.left = newNode;
@@ -384,11 +383,11 @@ const TreeVisualizer: React.FC = () => {
             const updatedNodes = TreeUtils.deepCopyNodes(prevNodes);
 
             // Get the dragged node from our copy
-            const draggedNodeIndex = nodeMap.get(draggedNode.id);
-            if (draggedNodeIndex === undefined) return prevNodes;
+            const nodeToDragResult = TreeUtils.findNodeById(updatedNodes, draggedNode.id);
+            if (!nodeToDragResult) return prevNodes;
 
             // The node we're dragging in our copied array
-            const nodeToDrag = updatedNodes[draggedNodeIndex];
+            const nodeToDrag = nodeToDragResult.node;
 
             // Calculate movement
             const dx = event.dx;
@@ -400,16 +399,16 @@ const TreeVisualizer: React.FC = () => {
 
             // Helper function to recursively update child positions
             const updateChildPositions = (nodeId: string, deltaX: number, deltaY: number) => {
-                const nodeIndex = nodeMap.get(nodeId);
-                if (nodeIndex === undefined) return;
+                const nodeResult = TreeUtils.findNodeById(updatedNodes, nodeId);
+                if (!nodeResult) return;
 
-                const node = updatedNodes[nodeIndex];
+                const node = nodeResult.node;
 
                 // Process left child if exists
                 if (node.left) {
-                    const leftChildIndex = nodeMap.get(node.left.id);
-                    if (leftChildIndex !== undefined) {
-                        const leftChild = updatedNodes[leftChildIndex];
+                    const leftChildResult = TreeUtils.findNodeById(updatedNodes, node.left.id);
+                    if (leftChildResult) {
+                        const leftChild = leftChildResult.node;
                         leftChild.x += deltaX;
                         leftChild.y += deltaY;
 
@@ -420,9 +419,9 @@ const TreeVisualizer: React.FC = () => {
 
                 // Process right child if exists
                 if (node.right) {
-                    const rightChildIndex = nodeMap.get(node.right.id);
-                    if (rightChildIndex !== undefined) {
-                        const rightChild = updatedNodes[rightChildIndex];
+                    const rightChildResult = TreeUtils.findNodeById(updatedNodes, node.right.id);
+                    if (rightChildResult) {
+                        const rightChild = rightChildResult.node;
                         rightChild.x += deltaX;
                         rightChild.y += deltaY;
 
@@ -439,16 +438,16 @@ const TreeVisualizer: React.FC = () => {
             // This ensures that node.left and node.right point to the updated objects
             updatedNodes.forEach(node => {
                 if (node.left) {
-                    const leftIndex = nodeMap.get(node.left.id);
-                    if (leftIndex !== undefined) {
-                        node.left = updatedNodes[leftIndex];
+                    const leftResult = TreeUtils.findNodeById(updatedNodes, node.left.id);
+                    if (leftResult) {
+                        node.left = leftResult.node;
                     }
                 }
 
                 if (node.right) {
-                    const rightIndex = nodeMap.get(node.right.id);
-                    if (rightIndex !== undefined) {
-                        node.right = updatedNodes[rightIndex];
+                    const rightResult = TreeUtils.findNodeById(updatedNodes, node.right.id);
+                    if (rightResult) {
+                        node.right = rightResult.node;
                     }
                 }
             });
@@ -467,6 +466,18 @@ const TreeVisualizer: React.FC = () => {
             simulationRef.current.stop();
             simulationRef.current = null;
         }
+    }, []);
+
+    // Update node positions from simulation nodes
+    const updateNodePositionsFromSimulation = useCallback((nodes: TreeNode[], simNodes: SimulationNode[]) => {
+        // For each simulation node, find and update the corresponding tree node
+        simNodes.forEach(simNode => {
+            const nodeResult = TreeUtils.findNodeById(nodes, simNode.id);
+            if (nodeResult) {
+                nodeResult.node.x = simNode.x || 0;
+                nodeResult.node.y = simNode.y || 0;
+            }
+        });
     }, []);
 
     // Update animated links during rotation
@@ -521,48 +532,34 @@ const TreeVisualizer: React.FC = () => {
         const workingNodes = [...nodes];
 
         // Find the node to rotate
-        const nodeIndex = workingNodes.findIndex(n => n.id === nodeId);
-        if (nodeIndex === -1) {
+        const nodeResult = TreeUtils.findAndCopyNode(workingNodes, nodeId);
+        if (!nodeResult) {
+            console.log('couldn\'t find node for rotation');
             setIsAnimating(false);
             return;
         }
-
-        const node = { ...workingNodes[nodeIndex] };
-        workingNodes[nodeIndex] = node;
+        const node = nodeResult.node;
 
         // Determine which child to use based on rotation direction
         const childProperty = direction === 'left' ? 'right' : 'left';
 
-        // Can't rotate without the required child
-        if (!node[childProperty]) {
-            setIsAnimating(false);
-            return;
-        }
-
         // Find the child node
-        const childId = node[childProperty]?.id;
-        if (!childId) {
+        const childResult = TreeUtils.findAndCopyChildNode(workingNodes, node, childProperty);
+        if (!childResult) {
+            console.log(`couldn't find ${childProperty} child for rotation`);
             setIsAnimating(false);
             return;
         }
-
-        const childIndex = workingNodes.findIndex(n => n.id === childId);
-        if (childIndex === -1) {
-            setIsAnimating(false);
-            return;
-        }
-
-        const childNode = { ...workingNodes[childIndex] };
-        workingNodes[childIndex] = childNode;
+        const childNode = childResult.node;
 
         // Find the grandchild if it exists (the child's opposite property)
         const grandchildProperty = direction === 'left' ? 'left' : 'right';
         let grandchild: TreeNode | undefined;
 
         if (childNode[grandchildProperty]) {
-            const grandchildIndex = workingNodes.findIndex(n => n.id === childNode[grandchildProperty]?.id);
-            if (grandchildIndex !== -1) {
-                grandchild = workingNodes[grandchildIndex];
+            const grandchildResult = TreeUtils.findNodeById(workingNodes, childNode[grandchildProperty]?.id || '');
+            if (grandchildResult) {
+                grandchild = grandchildResult.node;
             }
         }
 
@@ -604,33 +601,22 @@ const TreeVisualizer: React.FC = () => {
                     const newNodes = [...prevNodes];
 
                     // Find the node to rotate again (state might have changed)
-                    const finalNodeIndex = newNodes.findIndex(n => n.id === nodeId);
-                    if (finalNodeIndex === -1) {
-                        console.log('couldn\'t find node index');
+                    const finalNodeResult = TreeUtils.findAndCopyNode(newNodes, nodeId);
+                    if (!finalNodeResult) {
+                        console.log('couldn\'t find node index after rotation');
                         setIsAnimating(false);
                         return prevNodes;
                     }
-
-                    const finalNode = { ...newNodes[finalNodeIndex] };
-                    newNodes[finalNodeIndex] = finalNode;
+                    const finalNode = finalNodeResult.node;
 
                     // Find the child again
-                    const finalChildId = finalNode[childProperty]?.id;
-                    if (!finalChildId) {
-                        console.log('couldn\'t find child id');
+                    const finalChildResult = TreeUtils.findAndCopyChildNode(newNodes, finalNode, childProperty);
+                    if (!finalChildResult) {
+                        console.log(`couldn't find ${childProperty} child after rotation`);
                         setIsAnimating(false);
                         return prevNodes;
                     }
-
-                    const finalChildIndex = newNodes.findIndex(n => n.id === finalChildId);
-                    if (finalChildIndex === -1) {
-                        console.log('couldn\'t find child index');
-                        setIsAnimating(false);
-                        return prevNodes;
-                    }
-
-                    const finalChildNode = { ...newNodes[finalChildIndex] };
-                    newNodes[finalChildIndex] = finalChildNode;
+                    const finalChildNode = finalChildResult.node;
 
                     // Find parent again
                     const finalParentInfo = TreeUtils.findParentNode(newNodes, finalNode.id);
@@ -639,8 +625,9 @@ const TreeVisualizer: React.FC = () => {
                     if (direction === 'left') {
                         // Left rotation: right child becomes parent
                         if (finalChildNode.left) {
-                            const childLeftIndex = newNodes.findIndex(n => n.id === finalChildNode.left?.id);
-                            if (childLeftIndex !== -1) {
+                            // Find and potentially copy the left child of the right child
+                            const childLeftResult = TreeUtils.findNodeById(newNodes, finalChildNode.left.id);
+                            if (childLeftResult) {
                                 finalNode.right = { ...finalChildNode.left };
                             }
                         } else {
@@ -650,8 +637,9 @@ const TreeVisualizer: React.FC = () => {
                     } else {
                         // Right rotation: left child becomes parent
                         if (finalChildNode.right) {
-                            const childRightIndex = newNodes.findIndex(n => n.id === finalChildNode.right?.id);
-                            if (childRightIndex !== -1) {
+                            // Find and potentially copy the right child of the left child
+                            const childRightResult = TreeUtils.findNodeById(newNodes, finalChildNode.right.id);
+                            if (childRightResult) {
                                 finalNode.left = { ...finalChildNode.right };
                             }
                         } else {
@@ -671,13 +659,7 @@ const TreeVisualizer: React.FC = () => {
                     }
 
                     // Update positions to match simulation end state
-                    simNodes.forEach(simNode => {
-                        const nodeIndex = newNodes.findIndex(n => n.id === simNode.id);
-                        if (nodeIndex !== -1) {
-                            newNodes[nodeIndex].x = simNode.x || 0;
-                            newNodes[nodeIndex].y = simNode.y || 0;
-                        }
-                    });
+                    updateNodePositionsFromSimulation(newNodes, simNodes);
 
                     // Don't set isAnimating to false here since link animations may still be in progress
                     // The isAnimating flag will be set to false when all link animations complete
@@ -687,7 +669,7 @@ const TreeVisualizer: React.FC = () => {
         );
 
         simulationRef.current = simulation;
-    }, [nodes, isAnimating, stopSimulation, nodeAnimationComplete]);
+    }, [nodes, isAnimating, stopSimulation, nodeAnimationComplete, updateNodePositionsFromSimulation]);
 
     // Rotation helper for node with force simulation - now using common performRotation function
     const rotateLeft = useCallback((nodeId: string) => {
