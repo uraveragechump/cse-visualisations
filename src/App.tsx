@@ -16,13 +16,13 @@ function App() {
             className={`px-4 py-2 mx-2 rounded ${activeView === 'sorting' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
             onClick={() => setActiveView('sorting')}
           >
-            Sorting Visualizer
+            Sorting (Stability)
           </button>
           <button
             className={`px-4 py-2 mx-2 rounded ${activeView === 'tree' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
             onClick={() => setActiveView('tree')}
           >
-            Tree Visualizer
+            Binary Tree Rotations
           </button>
         </nav>
       </header>
