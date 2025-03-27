@@ -58,6 +58,31 @@ interface AnimatedLinkData {
     progress: number; // 0 to 1
 }
 
+// Props for Node component
+interface NodeProps {
+    node: TreeNode;
+    onDragStart: (event: any, node: TreeNode) => void;
+    onDrag: (event: any, node: TreeNode) => void;
+    onDragEnd: (event: any, node: TreeNode) => void;
+    onMouseEnter: (id: string) => void;
+    onMouseLeave: () => void;
+    onContextMenu: (event: React.MouseEvent, node: TreeNode) => void;
+    isHighlighted: boolean;
+}
+
+// Props for Link component
+interface LinkProps {
+    link: LinkData | AnimatedLinkData;
+    nodeAnimationComplete?: boolean;
+}
+
+// Props for RotationControls component
+interface RotationControlsProps {
+    node: TreeNode;
+    onRotateLeft: (id: string) => void;
+    onRotateRight: (id: string) => void;
+}
+
 // Utility functions for tree operations
 const TreeUtils = {
     // Deep copy a node and its children
@@ -162,6 +187,40 @@ const AnimationUtils = {
         };
 
         return force;
+    },
+
+    // Setup and run a simulation for rotation
+    setupRotationSimulation: (
+        simNodes: SimulationNode[],
+        onTick: (simNodes: SimulationNode[]) => void,
+        onComplete: () => void
+    ): d3.Simulation<d3.SimulationNodeDatum, undefined> => {
+        // Setup force simulation
+        const simulation = d3.forceSimulation(simNodes as d3.SimulationNodeDatum[])
+            .alphaTarget(0)
+            .alphaDecay(0.03)
+            .velocityDecay(0.3)
+            .force('target', AnimationUtils.createTargetForce());
+
+        // Handle simulation ticks
+        simulation.on('tick', () => {
+            // Update visual representation
+            AnimationUtils.updateNodesFromSimulation(simNodes);
+
+            // Call custom tick handler
+            onTick(simNodes);
+
+            // Check if simulation has converged
+            if (AnimationUtils.hasSimulationConverged(simNodes)) {
+                simulation.stop();
+                onComplete();
+            }
+        });
+
+        // Start the simulation
+        simulation.alpha(0.8).restart();
+
+        return simulation;
     },
 
     // Calculate target positions for rotation animations
@@ -285,17 +344,99 @@ const AnimationUtils = {
     }
 };
 
+// Utility functions for rendering
+const RenderUtils = {
+    // Create a tree node element
+    createNodeElement: (
+        node: TreeNode,
+        options: {
+            isPreview?: boolean,
+            fill?: string,
+            stroke?: string,
+            opacity?: number,
+            strokeDasharray?: string
+        } = {}
+    ) => {
+        const {
+            isPreview = false,
+            fill = isPreview ? '#f0f0f0' : '#fff',
+            stroke = isPreview ? '#999' : '#000',
+            opacity = isPreview ? 0.6 : 1,
+            strokeDasharray = isPreview ? '5,5' : undefined
+        } = options;
+
+        return (
+            <g
+                className={isPreview ? 'preview-node' : `node node-${node.id}`}
+                transform={`translate(${node.x},${node.y})`}
+            >
+                <circle
+                    r={20}
+                    fill={fill}
+                    stroke={stroke}
+                    strokeWidth={2}
+                    strokeDasharray={strokeDasharray}
+                    opacity={opacity}
+                />
+                <text
+                    textAnchor="middle"
+                    dy="0.3em"
+                    fontSize="12px"
+                    fill={isPreview ? '#999' : '#000'}
+                >
+                    {node.value}
+                </text>
+            </g>
+        );
+    },
+
+    // Create a link element
+    createLinkElement: (
+        source: Position,
+        target: Position,
+        options: {
+            isPreview?: boolean,
+            stroke?: string,
+            strokeWidth?: number,
+            opacity?: number,
+            strokeDasharray?: string,
+            id?: string,
+            sourceId?: string,
+            targetId?: string
+        } = {}
+    ) => {
+        const {
+            isPreview = false,
+            stroke = '#999',
+            strokeWidth = 2,
+            opacity = isPreview ? 0.4 : 0.6,
+            strokeDasharray = isPreview ? '5,5' : undefined,
+            id,
+            sourceId,
+            targetId
+        } = options;
+
+        return (
+            <line
+                className={`link ${isPreview ? 'preview-link' : ''}`}
+                x1={source.x}
+                y1={source.y}
+                x2={target.x}
+                y2={target.y}
+                stroke={stroke}
+                strokeWidth={strokeWidth}
+                strokeOpacity={opacity}
+                strokeDasharray={strokeDasharray}
+                data-id={id}
+                data-source-id={sourceId}
+                data-target-id={targetId}
+            />
+        );
+    }
+};
+
 // More declarative component for rendering tree nodes
-const Node: React.FC<{
-    node: TreeNode,
-    onDragStart: (event: any, node: TreeNode) => void,
-    onDrag: (event: any, node: TreeNode) => void,
-    onDragEnd: (event: any, node: TreeNode) => void,
-    onMouseEnter: (id: string) => void,
-    onMouseLeave: () => void,
-    onContextMenu: (event: React.MouseEvent, node: TreeNode) => void,
-    isHighlighted: boolean
-}> = ({ node, onDragStart, onDrag, onDragEnd, onMouseEnter, onMouseLeave, onContextMenu, isHighlighted }) => {
+const Node: React.FC<NodeProps> = ({ node, onDragStart, onDrag, onDragEnd, onMouseEnter, onMouseLeave, onContextMenu, isHighlighted }) => {
     const nodeRef = useRef<SVGGElement>(null);
 
     useEffect(() => {
@@ -331,10 +472,7 @@ const Node: React.FC<{
 };
 
 // More declarative component for rendering links between nodes
-const Link: React.FC<{
-    link: LinkData | AnimatedLinkData,
-    nodeAnimationComplete?: boolean
-}> = ({ link, nodeAnimationComplete = false }) => {
+const Link: React.FC<LinkProps> = ({ link, nodeAnimationComplete = false }) => {
     // Check if it's an animated link
     if ('progress' in link) {
         // Handle animation based on type
@@ -346,9 +484,9 @@ const Link: React.FC<{
         }
 
         let x1, y1, x2, y2;
-        let color;
 
         // Set color based on animation type
+        let color;
         switch (animatedLink.type) {
             case 'create':
                 color = '#4CAF50'; // Green for creation
@@ -385,46 +523,34 @@ const Link: React.FC<{
             y2 = animatedLink.startTarget.y;
         }
 
-        return (
-            <line
-                className={`link animated-link ${animatedLink.type}`}
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
-                stroke={color}
-                strokeWidth={2}
-                strokeOpacity={0.8}
-                strokeDasharray={animatedLink.type === 'delete' ? '5,5' : undefined}
-            />
+        return RenderUtils.createLinkElement(
+            { x: x1, y: y1 },
+            { x: x2, y: y2 },
+            {
+                stroke: color,
+                opacity: 0.8,
+                strokeDasharray: animatedLink.type === 'delete' ? '5,5' : undefined,
+                id: animatedLink.id
+            }
         );
     }
 
     // Normal link rendering for non-animated links
     const normalLink = link as LinkData;
-    return (
-        <line
-            className={`link ${normalLink.type === 'preview' ? 'preview-link' : ''}`}
-            x1={normalLink.source.x}
-            y1={normalLink.source.y}
-            x2={normalLink.target.x}
-            y2={normalLink.target.y}
-            stroke="#999"
-            strokeWidth={2}
-            strokeDasharray={normalLink.type === 'preview' ? '5,5' : undefined}
-            strokeOpacity={normalLink.type === 'preview' ? 0.4 : 0.6}
-            data-source-id={normalLink.source.id}
-            data-target-id={normalLink.target.id}
-        />
+    return RenderUtils.createLinkElement(
+        normalLink.source,
+        normalLink.target,
+        {
+            isPreview: normalLink.type === 'preview',
+            id: normalLink.id,
+            sourceId: normalLink.source.id,
+            targetId: normalLink.target.id
+        }
     );
 };
 
 // Component for rotation controls
-const RotationControls: React.FC<{
-    node: TreeNode,
-    onRotateLeft: (id: string) => void,
-    onRotateRight: (id: string) => void
-}> = ({ node, onRotateLeft, onRotateRight }) => {
+const RotationControls: React.FC<RotationControlsProps> = ({ node, onRotateLeft, onRotateRight }) => {
     return (
         <g className="rotation-indicator">
             <circle
@@ -947,8 +1073,8 @@ const TreeVisualizer: React.FC = () => {
         }
     }, [isAnimating, nodeAnimationComplete, animatedLinks, updateAnimatedLinks]);
 
-    // Rotation helper for node with force simulation
-    const rotateLeft = useCallback((nodeId: string) => {
+    // Common function to perform rotation (either left or right)
+    const performRotation = useCallback((nodeId: string, direction: RotationDirection) => {
         // Prevent rotation during animation
         if (isAnimating) return;
 
@@ -969,37 +1095,48 @@ const TreeVisualizer: React.FC = () => {
         const node = { ...workingNodes[nodeIndex] };
         workingNodes[nodeIndex] = node;
 
-        // Can't rotate without right child
-        if (!node.right) {
+        // Determine which child to use based on rotation direction
+        const childProperty = direction === 'left' ? 'right' : 'left';
+
+        // Can't rotate without the required child
+        if (!node[childProperty]) {
             setIsAnimating(false);
             return;
         }
 
-        // Find the right child
-        const rightChildIndex = workingNodes.findIndex(n => n.id === node.right?.id);
-        if (rightChildIndex === -1) {
+        // Find the child node
+        const childId = node[childProperty]?.id;
+        if (!childId) {
             setIsAnimating(false);
             return;
         }
 
-        const rightChild = { ...workingNodes[rightChildIndex] };
-        workingNodes[rightChildIndex] = rightChild;
+        const childIndex = workingNodes.findIndex(n => n.id === childId);
+        if (childIndex === -1) {
+            setIsAnimating(false);
+            return;
+        }
 
-        // Find the right child's left child (grandchild) if it exists
-        let leftGrandchild: TreeNode | undefined;
-        if (rightChild.left) {
-            const leftGrandchildIndex = workingNodes.findIndex(n => n.id === rightChild.left?.id);
-            if (leftGrandchildIndex !== -1) {
-                leftGrandchild = workingNodes[leftGrandchildIndex];
+        const childNode = { ...workingNodes[childIndex] };
+        workingNodes[childIndex] = childNode;
+
+        // Find the grandchild if it exists (the child's opposite property)
+        const grandchildProperty = direction === 'left' ? 'left' : 'right';
+        let grandchild: TreeNode | undefined;
+
+        if (childNode[grandchildProperty]) {
+            const grandchildIndex = workingNodes.findIndex(n => n.id === childNode[grandchildProperty]?.id);
+            if (grandchildIndex !== -1) {
+                grandchild = workingNodes[grandchildIndex];
             }
         }
 
         // Prepare animated links
         const newAnimatedLinks = AnimationUtils.createRotationAnimatedLinks(
             node,
-            rightChild,
-            leftGrandchild,
-            'left'
+            childNode,
+            grandchild,
+            direction
         );
 
         // Set the animated links
@@ -1009,27 +1146,19 @@ const TreeVisualizer: React.FC = () => {
         const parentInfo = TreeUtils.findParentNode(workingNodes, node.id);
 
         // Calculate target positions for all nodes
-        const targetPositions = AnimationUtils.calculateRotationTargetPositions(node, rightChild, 'left');
+        const targetPositions = AnimationUtils.calculateRotationTargetPositions(node, childNode, direction);
 
         // Convert tree nodes to simulation nodes
         const simNodes = AnimationUtils.createSimulationNodes(workingNodes, targetPositions);
 
-        // Setup force simulation for left rotation
-        const simulation = d3.forceSimulation(simNodes as d3.SimulationNodeDatum[])
-            .alphaTarget(0)
-            .alphaDecay(0.03)
-            .velocityDecay(0.3)
-            .force('target', AnimationUtils.createTargetForce());
-
-        simulationRef.current = simulation;
-
-        // Handle simulation ticks for left rotation
-        simulation.on('tick', () => {
-            AnimationUtils.updateNodesFromSimulation(simNodes);
-
-            // Check if simulation has converged
-            if (AnimationUtils.hasSimulationConverged(simNodes)) {
-                simulation.stop();
+        // Setup rotation simulation
+        const simulation = AnimationUtils.setupRotationSimulation(
+            simNodes,
+            () => {
+                // This is called on each tick (already handled by updateNodesFromSimulation)
+            },
+            () => {
+        // This is called when the simulation completes
                 simulationRef.current = null;
 
                 // Mark node animation as complete - this will trigger link animations
@@ -1049,38 +1178,57 @@ const TreeVisualizer: React.FC = () => {
                     const finalNode = { ...newNodes[finalNodeIndex] };
                     newNodes[finalNodeIndex] = finalNode;
 
-                    // Find the right child again
-                    const finalRightChildIndex = newNodes.findIndex(n => n.id === finalNode.right?.id);
-                    if (finalRightChildIndex === -1) {
+                    // Find the child again
+                    const finalChildId = finalNode[childProperty]?.id;
+                    if (!finalChildId) {
                         setIsAnimating(false);
                         return prevNodes;
                     }
 
-                    const finalRightChild = { ...newNodes[finalRightChildIndex] };
-                    newNodes[finalRightChildIndex] = finalRightChild;
+                    const finalChildIndex = newNodes.findIndex(n => n.id === finalChildId);
+                    if (finalChildIndex === -1) {
+                        setIsAnimating(false);
+                        return prevNodes;
+                    }
+
+                    const finalChildNode = { ...newNodes[finalChildIndex] };
+                    newNodes[finalChildIndex] = finalChildNode;
 
                     // Find parent again
                     const finalParentInfo = TreeUtils.findParentNode(newNodes, finalNode.id);
 
-                    // Update relationships
-                    if (finalRightChild.left) {
-                        const rightLeftChildIndex = newNodes.findIndex(n => n.id === finalRightChild.left?.id);
-                        if (rightLeftChildIndex !== -1) {
-                            finalNode.right = { ...finalRightChild.left };
+                    // Update relationships based on rotation direction
+                    if (direction === 'left') {
+                        // Left rotation: right child becomes parent
+                        if (finalChildNode.left) {
+                            const childLeftIndex = newNodes.findIndex(n => n.id === finalChildNode.left?.id);
+                            if (childLeftIndex !== -1) {
+                                finalNode.right = { ...finalChildNode.left };
+                            }
+                        } else {
+                            finalNode.right = undefined;
                         }
+                        finalChildNode.left = finalNode;
                     } else {
-                        finalNode.right = undefined;
+                        // Right rotation: left child becomes parent
+                        if (finalChildNode.right) {
+                            const childRightIndex = newNodes.findIndex(n => n.id === finalChildNode.right?.id);
+                            if (childRightIndex !== -1) {
+                                finalNode.left = { ...finalChildNode.right };
+                            }
+                        } else {
+                            finalNode.left = undefined;
+                        }
+                        finalChildNode.right = finalNode;
                     }
-
-                    finalRightChild.left = finalNode;
 
                     // Update parent's reference if exists
                     if (finalParentInfo) {
                         const { parent, isLeftChild } = finalParentInfo;
                         if (isLeftChild) {
-                            parent.left = finalRightChild;
+                            parent.left = finalChildNode;
                         } else {
-                            parent.right = finalRightChild;
+                            parent.right = finalChildNode;
                         }
                     }
 
@@ -1098,169 +1246,19 @@ const TreeVisualizer: React.FC = () => {
                     return newNodes;
                 });
             }
-        });
+        );
 
-        // Start the simulation
-        simulation.alpha(0.8).restart();
-
+        simulationRef.current = simulation;
     }, [nodes, isAnimating, stopSimulation, nodeAnimationComplete]);
+
+    // Rotation helper for node with force simulation - now using common performRotation function
+    const rotateLeft = useCallback((nodeId: string) => {
+        performRotation(nodeId, 'left');
+    }, [performRotation]);
 
     const rotateRight = useCallback((nodeId: string) => {
-        // Prevent rotation during animation
-        if (isAnimating) return;
-
-        setIsAnimating(true);
-        setNodeAnimationComplete(false); // Ensure node animation starts first
-        stopSimulation();
-
-        // Create a working copy of nodes
-        const workingNodes = [...nodes];
-
-        // Find the node to rotate
-        const nodeIndex = workingNodes.findIndex(n => n.id === nodeId);
-        if (nodeIndex === -1) {
-            setIsAnimating(false);
-            return;
-        }
-
-        const node = { ...workingNodes[nodeIndex] };
-        workingNodes[nodeIndex] = node;
-
-        // Can't rotate without left child
-        if (!node.left) {
-            setIsAnimating(false);
-            return;
-        }
-
-        // Find the left child
-        const leftChildIndex = workingNodes.findIndex(n => n.id === node.left?.id);
-        if (leftChildIndex === -1) {
-            setIsAnimating(false);
-            return;
-        }
-
-        const leftChild = { ...workingNodes[leftChildIndex] };
-        workingNodes[leftChildIndex] = leftChild;
-
-        // Find the left child's right child (grandchild) if it exists
-        let rightGrandchild: TreeNode | undefined;
-        if (leftChild.right) {
-            const rightGrandchildIndex = workingNodes.findIndex(n => n.id === leftChild.right?.id);
-            if (rightGrandchildIndex !== -1) {
-                rightGrandchild = workingNodes[rightGrandchildIndex];
-            }
-        }
-
-        // Prepare animated links
-        const newAnimatedLinks = AnimationUtils.createRotationAnimatedLinks(
-            node,
-            leftChild,
-            rightGrandchild,
-            'right'
-        );
-
-        // Set the animated links
-        setAnimatedLinks(newAnimatedLinks);
-
-        // Find if the node has a parent
-        const parentInfo = TreeUtils.findParentNode(workingNodes, node.id);
-
-        // Calculate target positions for all nodes
-        const targetPositions = AnimationUtils.calculateRotationTargetPositions(node, leftChild, 'right');
-
-        // Convert tree nodes to simulation nodes
-        const simNodes = AnimationUtils.createSimulationNodes(workingNodes, targetPositions);
-
-        // Setup force simulation
-        const simulation = d3.forceSimulation(simNodes as d3.SimulationNodeDatum[])
-            .alphaTarget(0)
-            .alphaDecay(0.03)
-            .velocityDecay(0.3)
-            .force('target', AnimationUtils.createTargetForce());
-
-        simulationRef.current = simulation;
-
-        // Handle simulation ticks for right rotation
-        simulation.on('tick', () => {
-            AnimationUtils.updateNodesFromSimulation(simNodes);
-
-            // Check if simulation has converged
-            if (AnimationUtils.hasSimulationConverged(simNodes)) {
-                simulation.stop();
-                simulationRef.current = null;
-
-                // Mark node animation as complete - this will trigger link animations
-                setNodeAnimationComplete(true);
-
-                // Update the actual tree structure
-                setNodes(prevNodes => {
-                    const newNodes = [...prevNodes];
-
-                    // Find the node to rotate again (state might have changed)
-                    const finalNodeIndex = newNodes.findIndex(n => n.id === nodeId);
-                    if (finalNodeIndex === -1) {
-                        setIsAnimating(false);
-                        return prevNodes;
-                    }
-
-                    const finalNode = { ...newNodes[finalNodeIndex] };
-                    newNodes[finalNodeIndex] = finalNode;
-
-                    // Find the left child again
-                    const finalLeftChildIndex = newNodes.findIndex(n => n.id === finalNode.left?.id);
-                    if (finalLeftChildIndex === -1) {
-                        setIsAnimating(false);
-                        return prevNodes;
-                    }
-
-                    const finalLeftChild = { ...newNodes[finalLeftChildIndex] };
-                    newNodes[finalLeftChildIndex] = finalLeftChild;
-
-                    // Find parent again
-                    const finalParentInfo = TreeUtils.findParentNode(newNodes, finalNode.id);
-
-                    // Update relationships
-                    if (finalLeftChild.right) {
-                        const leftRightChildIndex = newNodes.findIndex(n => n.id === finalLeftChild.right?.id);
-                        if (leftRightChildIndex !== -1) {
-                            finalNode.left = { ...finalLeftChild.right };
-                        }
-                    } else {
-                        finalNode.left = undefined;
-                    }
-
-                    finalLeftChild.right = finalNode;
-
-                    // Update parent's reference if exists
-                    if (finalParentInfo) {
-                        const { parent, isLeftChild } = finalParentInfo;
-                        if (isLeftChild) {
-                            parent.left = finalLeftChild;
-                        } else {
-                            parent.right = finalLeftChild;
-                        }
-                    }
-
-                    // Update positions to match simulation end state
-                    simNodes.forEach(simNode => {
-                        const nodeIndex = newNodes.findIndex(n => n.id === simNode.id);
-                        if (nodeIndex !== -1) {
-                            newNodes[nodeIndex].x = simNode.x || 0;
-                            newNodes[nodeIndex].y = simNode.y || 0;
-                        }
-                    });
-
-                    // Don't set isAnimating to false here since link animations may still be in progress
-                    // The isAnimating flag will be set to false when all link animations complete
-                    return newNodes;
-                });
-            }
-        });
-
-        // Start the simulation
-        simulation.alpha(0.8).restart();
-
-    }, [nodes, isAnimating, stopSimulation, nodeAnimationComplete]);
+        performRotation(nodeId, 'right');
+    }, [performRotation]);
 
     // Handle right click to delete leaf nodes
     const handleContextMenu = useCallback((event: React.MouseEvent, nodeToDelete: TreeNode) => {
@@ -1366,28 +1364,15 @@ const TreeVisualizer: React.FC = () => {
     const renderPreviewNode = useCallback(() => {
         if (!previewNode) return null;
 
-        return (
-            <g
-                className="preview-node"
-                transform={`translate(${previewNode.x},${previewNode.y})`}
-            >
-                <circle
-                    r={20}
-                    fill="#f0f0f0"
-                    stroke="#999"
-                    strokeWidth={2}
-                    strokeDasharray="5,5"
-                />
-                <text
-                    textAnchor="middle"
-                    dy="0.3em"
-                    fontSize="12px"
-                    fill="#999"
-                >
-                    {previewNode.value}
-                </text>
-            </g>
-        );
+        // Create a temporary node object that matches the TreeNode interface
+        const tempNode: TreeNode = {
+            id: 'preview-node',
+            value: previewNode.value,
+            x: previewNode.x,
+            y: previewNode.y
+        };
+
+        return RenderUtils.createNodeElement(tempNode, { isPreview: true });
     }, [previewNode]);
 
     return (
