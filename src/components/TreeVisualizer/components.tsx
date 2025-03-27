@@ -140,6 +140,7 @@ export const Node: React.FC<NodeProps> = ({ node, onDragStart, onDrag, onDragEnd
 
 // More declarative component for rendering links between nodes
 export const Link: React.FC<LinkProps> = ({ link, nodeAnimationComplete = false }) => {
+    console.log('Link component rendered, nodeAnimationComplete:', nodeAnimationComplete);
     // Check if it's an animated link
     if ('progress' in link) {
         // Handle animation based on type

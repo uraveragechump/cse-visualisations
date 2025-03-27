@@ -30,15 +30,8 @@ const AnimationUtils = {
     },
 
     // Check if simulation has converged (all nodes are close to their targets)
-    hasSimulationConverged: (simNodes: SimulationNode[]): boolean => {
-        const threshold = 0.5; // Distance threshold for considering a node settled
-        return simNodes.every(node => {
-            if (node.targetX === undefined || node.targetY === undefined) return true;
-            const dx = node.x - node.targetX;
-            const dy = node.y - node.targetY;
-            return Math.sqrt(dx * dx + dy * dy) < threshold;
-        });
-    },
+    // We might not need this anymore if we rely on alphaMin and the 'end' event
+    // hasSimulationConverged: (simNodes: SimulationNode[]): boolean => { ... }
 
     // Create custom force factory for moving nodes toward target positions
     createTargetForce: () => {
@@ -69,28 +62,55 @@ const AnimationUtils = {
     ): d3.Simulation<d3.SimulationNodeDatum, undefined> => {
         // Setup force simulation
         const simulation = d3.forceSimulation(simNodes as d3.SimulationNodeDatum[])
-            .alphaTarget(0)
-            .alphaDecay(0.03)
-            .velocityDecay(0.3)
+            // *** START EDIT 1 ***
+            // .alphaTarget(0) // Keep alpha decaying naturally
+            .alphaDecay(0.03) // Keep existing decay
+            .alphaMin(0.1) // Set a minimum alpha threshold for automatic stopping
+            .velocityDecay(0.3) // Keep existing velocity decay
+            // *** END EDIT 1 ***
             .force('target', AnimationUtils.createTargetForce());
 
         // Handle simulation ticks
         simulation.on('tick', () => {
-            // Update visual representation
+            // Update visual representation during the simulation
             AnimationUtils.updateNodesFromSimulation(simNodes);
 
-            // Call custom tick handler
+            // Call custom tick handler (if needed for other effects)
             onTick(simNodes);
 
-            // Check if simulation has converged
-            if (AnimationUtils.hasSimulationConverged(simNodes)) {
-                simulation.stop();
-                onComplete();
-            }
+            // *** START EDIT 2 ***
+            // Remove the convergence check from here
+            // if (AnimationUtils.hasSimulationConverged(simNodes)) {
+            //     simulation.stop();
+            //     // ... logic moved to 'end' event ...
+            // }
+            // *** END EDIT 2 ***
         });
 
+        // *** START EDIT 3 ***
+        // Handle simulation end event
+        simulation.on('end', () => {
+            console.log("Simulation ended."); // Debug log
+
+            // Ensure nodes are exactly at their target positions upon completion
+            simNodes.forEach(node => {
+                if (node.targetX !== undefined && node.targetY !== undefined) {
+                    // Use nullish coalescing for safety, though targets should be defined
+                    node.x = node.targetX ?? node.x;
+                    node.y = node.targetY ?? node.y;
+                }
+            });
+
+            // Update visuals one last time with snapped positions
+            AnimationUtils.updateNodesFromSimulation(simNodes);
+
+            // Call the original completion callback
+            onComplete();
+        });
+        // *** END EDIT 3 ***
+
         // Start the simulation
-        simulation.alpha(0.8).restart();
+        simulation.alpha(0.8).restart(); // Start with high alpha
 
         return simulation;
     },
