@@ -1,0 +1,78 @@
+.tree-visualizer {
+    padding: 20px;
+    font-family: Arial, sans-serif;
+}
+
+.tree-visualizer svg {
+    background-color: #fafafa;
+}
+
+.node circle {
+    cursor: move;
+    transition: fill 0.3s ease;
+}
+
+.node text {
+    user-select: none;
+}
+
+.link {
+    pointer-events: none;
+}
+
+.preview-link {
+    opacity: 0.6;
+}
+
+.node-input {
+    width: 40px;
+    height: 24px;
+    text-align: center;
+    font-size: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.node.highlighted circle {
+    fill: #f5f5f5;
+    stroke-width: 3px;
+}
+
+.rotation-indicator {
+    cursor: pointer;
+}
+.rotation-indicator circle:hover {
+    fill: #d0d0d0;
+    stroke-width: 2px;
+}
+
+/* Link Styles */
+.animated-link {
+    stroke-width: 3px;
+    transition: stroke-dasharray 0.3s ease;
+}
+
+.animated-link.active {
+    opacity: 1;
+}
+
+.animated-link.inactive {
+    opacity: 0.7;
+}
+
+.animated-link.create {
+    stroke-linecap: round;
+}
+
+.animated-link.delete {
+    stroke-dasharray: 5, 5;
+}
+
+.animated-link.reparent {
+    stroke-linecap: round;
+}
+
+/* Animation durations */
+.animated-link.active {
+    transition: x1 0.3s ease, y1 0.3s ease, x2 0.3s ease, y2 0.3s ease, opacity 0.3s ease;
+}
