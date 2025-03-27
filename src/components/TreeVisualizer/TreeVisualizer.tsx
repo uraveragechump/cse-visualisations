@@ -606,6 +606,7 @@ const TreeVisualizer: React.FC = () => {
                     // Find the node to rotate again (state might have changed)
                     const finalNodeIndex = newNodes.findIndex(n => n.id === nodeId);
                     if (finalNodeIndex === -1) {
+                        console.log('couldn\'t find node index');
                         setIsAnimating(false);
                         return prevNodes;
                     }
@@ -616,12 +617,14 @@ const TreeVisualizer: React.FC = () => {
                     // Find the child again
                     const finalChildId = finalNode[childProperty]?.id;
                     if (!finalChildId) {
+                        console.log('couldn\'t find child id');
                         setIsAnimating(false);
                         return prevNodes;
                     }
 
                     const finalChildIndex = newNodes.findIndex(n => n.id === finalChildId);
                     if (finalChildIndex === -1) {
+                        console.log('couldn\'t find child index');
                         setIsAnimating(false);
                         return prevNodes;
                     }
