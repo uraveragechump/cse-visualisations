@@ -2,12 +2,19 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as d3 from 'd3';
 import './TreeVisualizer.css';
 
-// Node data structure
-interface TreeNode {
-    id: string;
-    value: number;
+// Common interfaces
+interface Position {
     x: number;
     y: number;
+}
+
+// Type for rotation direction
+type RotationDirection = 'left' | 'right';
+
+// Node data structure
+interface TreeNode extends Position {
+    id: string;
+    value: number;
     left?: TreeNode;
     right?: TreeNode;
 }
@@ -21,9 +28,7 @@ interface LinkData {
 }
 
 // Preview node data structure
-interface PreviewNode {
-    x: number;
-    y: number;
+interface PreviewNode extends Position {
     value: number;
     parentId: string;
     isLeft: boolean;
@@ -45,13 +50,240 @@ interface SimulationNode extends d3.SimulationNodeDatum {
 // Link animation states
 interface AnimatedLinkData {
     id: string;
-    startSource: { x: number, y: number };
-    startTarget: { x: number, y: number };
-    endSource: { x: number, y: number };
-    endTarget: { x: number, y: number };
+    startSource: Position;
+    startTarget: Position;
+    endSource: Position;
+    endTarget: Position;
     type: 'create' | 'delete' | 'reparent';
     progress: number; // 0 to 1
 }
+
+// Utility functions for tree operations
+const TreeUtils = {
+    // Deep copy a node and its children
+    deepCopyNode: (node: TreeNode): TreeNode => {
+        const copy: TreeNode = { ...node };
+        if (node.left) copy.left = TreeUtils.deepCopyNode(node.left);
+        if (node.right) copy.right = TreeUtils.deepCopyNode(node.right);
+        return copy;
+    },
+
+    // Deep copy an array of nodes
+    deepCopyNodes: (nodes: TreeNode[]): TreeNode[] => {
+        return nodes.map(node => TreeUtils.deepCopyNode(node));
+    },
+
+    // Find parent node for a given node id
+    findParentNode: (nodes: TreeNode[], nodeId: string): { parent: TreeNode, isLeftChild: boolean } | null => {
+        for (const node of nodes) {
+            if (node.left && node.left.id === nodeId) {
+                return { parent: node, isLeftChild: true };
+            }
+            if (node.right && node.right.id === nodeId) {
+                return { parent: node, isLeftChild: false };
+            }
+        }
+        return null;
+    },
+
+    // Build a map of node IDs to node objects
+    buildNodeMap: (nodes: TreeNode[]): Map<string, TreeNode> => {
+        const nodeMap = new Map<string, TreeNode>();
+        nodes.forEach(node => {
+            nodeMap.set(node.id, node);
+        });
+        return nodeMap;
+    },
+
+    // Build a map of node IDs to array indices
+    buildNodeIndexMap: (nodes: TreeNode[]): Map<string, number> => {
+        const nodeMap = new Map<string, number>();
+        nodes.forEach((node, index) => {
+            nodeMap.set(node.id, index);
+        });
+        return nodeMap;
+    },
+
+    // Generate a unique ID for a node
+    generateId: (): string => {
+        return `node-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    }
+};
+
+// Utility functions for animations
+const AnimationUtils = {
+    // Convert tree nodes to simulation nodes with target positions
+    createSimulationNodes: (
+        treeNodes: TreeNode[],
+        targetPositions: Map<string, Position>
+    ): SimulationNode[] => {
+        return treeNodes.map(node => {
+            const target = targetPositions.get(node.id);
+            return {
+                id: node.id,
+                x: node.x,
+                y: node.y,
+                targetX: target ? target.x : node.x,
+                targetY: target ? target.y : node.y,
+                value: node.value,
+                left: node.left ? { id: node.left.id } : undefined,
+                right: node.right ? { id: node.right.id } : undefined
+            };
+        });
+    },
+
+    // Check if simulation has converged (all nodes are close to their targets)
+    hasSimulationConverged: (simNodes: SimulationNode[]): boolean => {
+        const threshold = 0.5; // Distance threshold for considering a node settled
+        return simNodes.every(node => {
+            if (node.targetX === undefined || node.targetY === undefined) return true;
+            const dx = node.x - node.targetX;
+            const dy = node.y - node.targetY;
+            return Math.sqrt(dx * dx + dy * dy) < threshold;
+        });
+    },
+
+    // Create custom force factory for moving nodes toward target positions
+    createTargetForce: () => {
+        let nodes: SimulationNode[] = [];
+
+        const force = (alpha: number) => {
+            // Apply force toward target position with alpha as strength modifier
+            for (const node of nodes) {
+                if (node.targetX !== undefined && node.targetY !== undefined) {
+                    node.vx = (node.targetX - node.x) * alpha * 0.3;
+                    node.vy = (node.targetY - node.y) * alpha * 0.3;
+                }
+            }
+        };
+
+        force.initialize = (newNodes: SimulationNode[]) => {
+            nodes = newNodes;
+        };
+
+        return force;
+    },
+
+    // Calculate target positions for rotation animations
+    calculateRotationTargetPositions: (
+        node: TreeNode,
+        childNode: TreeNode,
+        direction: RotationDirection
+    ): Map<string, Position> => {
+        const targetPositions = new Map<string, Position>();
+
+        if (direction === 'left') {
+            // Node will move down and to the left
+            targetPositions.set(node.id, { x: node.x - 50, y: node.y + 50 });
+            // Right child will take node's position
+            targetPositions.set(childNode.id, { x: node.x, y: node.y });
+        } else { // 'right'
+            // Node will move down and to the right
+            targetPositions.set(node.id, { x: node.x + 50, y: node.y + 50 });
+            // Left child will take node's position
+            targetPositions.set(childNode.id, { x: node.x, y: node.y });
+        }
+
+        return targetPositions;
+    },
+
+    // Create animated links for rotations
+    createRotationAnimatedLinks: (
+        node: TreeNode,
+        childNode: TreeNode,
+        grandchildNode: TreeNode | undefined,
+        direction: RotationDirection
+    ): AnimatedLinkData[] => {
+        const newAnimatedLinks: AnimatedLinkData[] = [];
+
+        // Determine the new position for the node after rotation
+        const nodeNewPosition: Position = direction === 'left'
+            ? { x: node.x - 50, y: node.y + 50 }
+            : { x: node.x + 50, y: node.y + 50 };
+
+        // 1. Link to be deleted (parent -> child)
+        newAnimatedLinks.push({
+            id: `delete-${node.id}-${childNode.id}`,
+            startSource: { x: node.x, y: node.y },
+            startTarget: { x: childNode.x, y: childNode.y },
+            endSource: { x: node.x, y: node.y },
+            endTarget: { x: childNode.x, y: childNode.y },
+            type: 'delete',
+            progress: 0
+        });
+
+        // 2. Link to be created (child -> parent at new position)
+        newAnimatedLinks.push({
+            id: `create-${childNode.id}-${node.id}`,
+            startSource: { x: childNode.x, y: childNode.y },
+            startTarget: nodeNewPosition,
+            endSource: { x: childNode.x, y: childNode.y },
+            endTarget: nodeNewPosition,
+            type: 'create',
+            progress: 0
+        });
+
+        // 3. If the child has a grandchild that will be reparented
+        if (grandchildNode) {
+            newAnimatedLinks.push({
+                id: `reparent-${grandchildNode.id}`,
+                startSource: { x: childNode.x, y: childNode.y }, // Old parent
+                startTarget: { x: grandchildNode.x, y: grandchildNode.y },
+                endSource: nodeNewPosition, // New parent (node's new position)
+                endTarget: { x: grandchildNode.x, y: grandchildNode.y },
+                type: 'reparent',
+                progress: 0
+            });
+        }
+
+        return newAnimatedLinks;
+    },
+
+    // Update DOM from simulation state
+    updateNodesFromSimulation: (simNodes: SimulationNode[]) => {
+        // Update node positions visually
+        simNodes.forEach(simNode => {
+            const nodeElement = d3.select(`g.node-${simNode.id}`);
+            if (!nodeElement.empty()) {
+                nodeElement.attr('transform', `translate(${simNode.x},${simNode.y})`);
+            }
+        });
+
+        // Update link positions
+        const nodeMap = new Map<string, { x: number, y: number }>();
+        simNodes.forEach(node => {
+            nodeMap.set(node.id, { x: node.x || 0, y: node.y || 0 });
+        });
+
+        // Update links
+        d3.selectAll('line.link').each(function () {
+            const link = d3.select(this);
+            const sourceId = link.attr('data-source-id');
+            const targetId = link.attr('data-target-id');
+
+            const source = nodeMap.get(sourceId);
+            const target = nodeMap.get(targetId);
+
+            if (source && target) {
+                link
+                    .attr('x1', source.x)
+                    .attr('y1', source.y)
+                    .attr('x2', target.x)
+                    .attr('y2', target.y);
+            }
+        });
+    },
+
+    // Update animated links during rotation
+    updateAnimatedLinks: (links: AnimatedLinkData[]): AnimatedLinkData[] => {
+        if (links.length === 0) return links;
+
+        return links.map(link => ({
+            ...link,
+            progress: Math.min(link.progress + 0.05, 1)  // All links animate once node animation is complete
+        }));
+    }
+};
 
 // More declarative component for rendering tree nodes
 const Node: React.FC<{
@@ -264,12 +496,7 @@ const TreeVisualizer: React.FC = () => {
     // Function to update links based on current node tree structure
     const updateLinks = useCallback(() => {
         const computedLinks: LinkData[] = [];
-
-        // We need to build a map of node IDs to actual node objects
-        const nodeMap = new Map<string, TreeNode>();
-        nodes.forEach(node => {
-            nodeMap.set(node.id, node);
-        });
+        const nodeMap = TreeUtils.buildNodeMap(nodes);
 
         // Flatten the tree to get all nodes and their relationships
         nodes.forEach(node => {
@@ -300,11 +527,6 @@ const TreeVisualizer: React.FC = () => {
 
         setLinks(computedLinks);
     }, [nodes]);
-
-    // Generate a unique ID for a node
-    const generateId = useCallback((): string => {
-        return `node-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    }, []);
 
     // Finding a close node for preview/interaction with minimum and maximum distance constraints
     const findCloseNode = useCallback((x: number, y: number, minDistance: number, maxDistance: number): TreeNode | null => {
@@ -491,7 +713,7 @@ const TreeVisualizer: React.FC = () => {
         if (previewNode) {
             // Add preview node to tree
             const newNode: TreeNode = {
-                id: generateId(),
+                id: TreeUtils.generateId(),
                 value: previewNode.value,
                 x: previewNode.x,
                 y: previewNode.y
@@ -573,7 +795,7 @@ const TreeVisualizer: React.FC = () => {
 
             // Create the first root node
             const rootNode: TreeNode = {
-                id: generateId(),
+                id: TreeUtils.generateId(),
                 value: rootValue,
                 x,
                 y
@@ -585,7 +807,7 @@ const TreeVisualizer: React.FC = () => {
         // Clear preview
         setPreviewNode(null);
         setPreviewLink(null);
-    }, [generateId, nodes, previewNode]);
+    }, [nodes, previewNode]);
 
     // Handlers for dragging nodes
     const handleDragStart = useCallback((_event: any, _node: TreeNode) => {
@@ -595,13 +817,10 @@ const TreeVisualizer: React.FC = () => {
     const handleDrag = useCallback((event: any, draggedNode: TreeNode) => {
         setNodes(prevNodes => {
             // Create a map for O(1) lookup
-            const nodeMap = new Map<string, number>();
-            prevNodes.forEach((node, index) => {
-                nodeMap.set(node.id, index);
-            });
+            const nodeMap = TreeUtils.buildNodeIndexMap(prevNodes);
 
             // Deep copy all nodes to avoid mutation
-            const updatedNodes = prevNodes.map(node => ({ ...node }));
+            const updatedNodes = TreeUtils.deepCopyNodes(prevNodes);
 
             // Get the dragged node from our copy
             const draggedNodeIndex = nodeMap.get(draggedNode.id);
@@ -689,99 +908,10 @@ const TreeVisualizer: React.FC = () => {
         }
     }, []);
 
-    // Custom force factory for moving nodes toward target positions
-    const createTargetForce = () => {
-        let nodes: SimulationNode[] = [];
-
-        const force = (alpha: number) => {
-            // Apply force toward target position with alpha as strength modifier
-            for (const node of nodes) {
-                if (node.targetX !== undefined && node.targetY !== undefined) {
-                    node.vx = (node.targetX - node.x) * alpha * 0.3;
-                    node.vy = (node.targetY - node.y) * alpha * 0.3;
-                }
-            }
-        };
-
-        force.initialize = (newNodes: SimulationNode[]) => {
-            nodes = newNodes;
-        };
-
-        return force;
-    };
-
-    // Convert tree nodes to simulation nodes
-    const createSimulationNodes = (treeNodes: TreeNode[], targetPositions: Map<string, { x: number, y: number }>): SimulationNode[] => {
-        return treeNodes.map(node => {
-            const target = targetPositions.get(node.id);
-            return {
-                id: node.id,
-                x: node.x,
-                y: node.y,
-                targetX: target ? target.x : node.x,
-                targetY: target ? target.y : node.y,
-                value: node.value,
-                left: node.left ? { id: node.left.id } : undefined,
-                right: node.right ? { id: node.right.id } : undefined
-            };
-        });
-    };
-
-    // Check if simulation has converged
-    const hasSimulationConverged = (simNodes: SimulationNode[]): boolean => {
-        const threshold = 0.5; // Distance threshold for considering a node settled
-        return simNodes.every(node => {
-            if (node.targetX === undefined || node.targetY === undefined) return true;
-            const dx = node.x - node.targetX;
-            const dy = node.y - node.targetY;
-            return Math.sqrt(dx * dx + dy * dy) < threshold;
-        });
-    };
-
-    // Update DOM from simulation state
-    const updateNodesFromSimulation = (simNodes: SimulationNode[]) => {
-        // Update node positions visually
-        simNodes.forEach(simNode => {
-            const nodeElement = d3.select(`g.node-${simNode.id}`);
-            if (!nodeElement.empty()) {
-                nodeElement.attr('transform', `translate(${simNode.x},${simNode.y})`);
-            }
-        });
-
-        // Update link positions
-        const nodeMap = new Map<string, { x: number, y: number }>();
-        simNodes.forEach(node => {
-            nodeMap.set(node.id, { x: node.x || 0, y: node.y || 0 });
-        });
-
-        // Update links
-        d3.selectAll('line.link').each(function () {
-            const link = d3.select(this);
-            const sourceId = link.attr('data-source-id');
-            const targetId = link.attr('data-target-id');
-
-            const source = nodeMap.get(sourceId);
-            const target = nodeMap.get(targetId);
-
-            if (source && target) {
-                link
-                    .attr('x1', source.x)
-                    .attr('y1', source.y)
-                    .attr('x2', target.x)
-                    .attr('y2', target.y);
-            }
-        });
-    };
-
     // Update animated links during rotation
     const updateAnimatedLinks = useCallback(() => {
         if (animatedLinks.length > 0) {
-            setAnimatedLinks(prevLinks => {
-                return prevLinks.map(link => ({
-                    ...link,
-                    progress: Math.min(link.progress + 0.05, 1)  // All links animate once node animation is complete
-                }));
-            });
+            setAnimatedLinks(prevLinks => AnimationUtils.updateAnimatedLinks(prevLinks));
         }
     }, [animatedLinks]);
 
@@ -855,99 +985,50 @@ const TreeVisualizer: React.FC = () => {
         const rightChild = { ...workingNodes[rightChildIndex] };
         workingNodes[rightChildIndex] = rightChild;
 
-        // Prepare animated links - always start with progress at 0
-        const newAnimatedLinks: AnimatedLinkData[] = [];
-
-        // 1. Link to be deleted (parent -> right child)
-        newAnimatedLinks.push({
-            id: `delete-${node.id}-${rightChild.id}`,
-            startSource: { x: node.x, y: node.y },
-            startTarget: { x: rightChild.x, y: rightChild.y },
-            endSource: { x: node.x, y: node.y },
-            endTarget: { x: rightChild.x, y: rightChild.y },
-            type: 'delete',
-            progress: 0
-        });
-
-        // 2. Link to be created (right child -> parent)
-        newAnimatedLinks.push({
-            id: `create-${rightChild.id}-${node.id}`,
-            startSource: { x: rightChild.x, y: rightChild.y },
-            startTarget: { x: node.x - 50, y: node.y + 50 }, // Target's new position
-            endSource: { x: rightChild.x, y: rightChild.y },
-            endTarget: { x: node.x - 50, y: node.y + 50 }, // Target's new position
-            type: 'create',
-            progress: 0
-        });
-
-        // 3. If right child has a left child, that link will be reparented
+        // Find the right child's left child (grandchild) if it exists
+        let leftGrandchild: TreeNode | undefined;
         if (rightChild.left) {
             const leftGrandchildIndex = workingNodes.findIndex(n => n.id === rightChild.left?.id);
             if (leftGrandchildIndex !== -1) {
-                const leftGrandchild = workingNodes[leftGrandchildIndex];
-                newAnimatedLinks.push({
-                    id: `reparent-${leftGrandchild.id}`,
-                    startSource: { x: rightChild.x, y: rightChild.y }, // Old parent
-                    startTarget: { x: leftGrandchild.x, y: leftGrandchild.y },
-                    endSource: { x: node.x - 50, y: node.y + 50 }, // New parent (node's new position)
-                    endTarget: { x: leftGrandchild.x, y: leftGrandchild.y },
-                    type: 'reparent',
-                    progress: 0
-                });
+                leftGrandchild = workingNodes[leftGrandchildIndex];
             }
         }
+
+        // Prepare animated links
+        const newAnimatedLinks = AnimationUtils.createRotationAnimatedLinks(
+            node,
+            rightChild,
+            leftGrandchild,
+            'left'
+        );
 
         // Set the animated links
         setAnimatedLinks(newAnimatedLinks);
 
         // Find if the node has a parent
-        let parentIndex = -1;
-        let isLeftChild = false;
-
-        for (let i = 0; i < workingNodes.length; i++) {
-            if (workingNodes[i]?.left && workingNodes[i]?.left?.id === node.id) {
-                parentIndex = i;
-                isLeftChild = true;
-                break;
-            }
-            if (workingNodes[i]?.right && workingNodes[i]?.right?.id === node.id) {
-                parentIndex = i;
-                isLeftChild = false;
-                break;
-            }
-        }
+        const parentInfo = TreeUtils.findParentNode(workingNodes, node.id);
 
         // Calculate target positions for all nodes
-        const targetPositions = new Map<string, { x: number, y: number }>();
-
-        // Node will move down and to the left
-        targetPositions.set(node.id, { x: node.x - 50, y: node.y + 50 });
-
-        // Right child will take node's position
-        targetPositions.set(rightChild.id, { x: node.x, y: node.y });
-
-        // We don't set a target position for the grandchild (rightChild.left) anymore
-        // This allows it to stay in place during the animation
-        // The tree structure will still be updated correctly, only the visual positions change
+        const targetPositions = AnimationUtils.calculateRotationTargetPositions(node, rightChild, 'left');
 
         // Convert tree nodes to simulation nodes
-        const simNodes = createSimulationNodes(workingNodes, targetPositions);
+        const simNodes = AnimationUtils.createSimulationNodes(workingNodes, targetPositions);
 
         // Setup force simulation for left rotation
         const simulation = d3.forceSimulation(simNodes as d3.SimulationNodeDatum[])
             .alphaTarget(0)
             .alphaDecay(0.03)
             .velocityDecay(0.3)
-            .force('target', createTargetForce());
+            .force('target', AnimationUtils.createTargetForce());
 
         simulationRef.current = simulation;
 
         // Handle simulation ticks for left rotation
         simulation.on('tick', () => {
-            updateNodesFromSimulation(simNodes);
+            AnimationUtils.updateNodesFromSimulation(simNodes);
 
             // Check if simulation has converged
-            if (hasSimulationConverged(simNodes)) {
+            if (AnimationUtils.hasSimulationConverged(simNodes)) {
                 simulation.stop();
                 simulationRef.current = null;
 
@@ -979,21 +1060,7 @@ const TreeVisualizer: React.FC = () => {
                     newNodes[finalRightChildIndex] = finalRightChild;
 
                     // Find parent again
-                    let finalParentIndex = -1;
-                    let finalIsLeftChild = false;
-
-                    for (let i = 0; i < newNodes.length; i++) {
-                        if (newNodes[i]?.left && newNodes[i]?.left?.id === finalNode.id) {
-                            finalParentIndex = i;
-                            finalIsLeftChild = true;
-                            break;
-                        }
-                        if (newNodes[i]?.right && newNodes[i]?.right?.id === finalNode.id) {
-                            finalParentIndex = i;
-                            finalIsLeftChild = false;
-                            break;
-                        }
-                    }
+                    const finalParentInfo = TreeUtils.findParentNode(newNodes, finalNode.id);
 
                     // Update relationships
                     if (finalRightChild.left) {
@@ -1008,11 +1075,9 @@ const TreeVisualizer: React.FC = () => {
                     finalRightChild.left = finalNode;
 
                     // Update parent's reference if exists
-                    if (finalParentIndex !== -1) {
-                        const parent = { ...newNodes[finalParentIndex] };
-                        newNodes[finalParentIndex] = parent;
-
-                        if (finalIsLeftChild) {
+                    if (finalParentInfo) {
+                        const { parent, isLeftChild } = finalParentInfo;
+                        if (isLeftChild) {
                             parent.left = finalRightChild;
                         } else {
                             parent.right = finalRightChild;
@@ -1077,99 +1142,50 @@ const TreeVisualizer: React.FC = () => {
         const leftChild = { ...workingNodes[leftChildIndex] };
         workingNodes[leftChildIndex] = leftChild;
 
-        // Prepare animated links - always start with progress at 0
-        const newAnimatedLinks: AnimatedLinkData[] = [];
-
-        // 1. Link to be deleted (parent -> left child)
-        newAnimatedLinks.push({
-            id: `delete-${node.id}-${leftChild.id}`,
-            startSource: { x: node.x, y: node.y },
-            startTarget: { x: leftChild.x, y: leftChild.y },
-            endSource: { x: node.x, y: node.y },
-            endTarget: { x: leftChild.x, y: leftChild.y },
-            type: 'delete',
-            progress: 0
-        });
-
-        // 2. Link to be created (left child -> parent)
-        newAnimatedLinks.push({
-            id: `create-${leftChild.id}-${node.id}`,
-            startSource: { x: leftChild.x, y: leftChild.y },
-            startTarget: { x: node.x + 50, y: node.y + 50 }, // Target's new position
-            endSource: { x: leftChild.x, y: leftChild.y },
-            endTarget: { x: node.x + 50, y: node.y + 50 }, // Target's new position
-            type: 'create',
-            progress: 0
-        });
-
-        // 3. If left child has a right child, that link will be reparented
+        // Find the left child's right child (grandchild) if it exists
+        let rightGrandchild: TreeNode | undefined;
         if (leftChild.right) {
             const rightGrandchildIndex = workingNodes.findIndex(n => n.id === leftChild.right?.id);
             if (rightGrandchildIndex !== -1) {
-                const rightGrandchild = workingNodes[rightGrandchildIndex];
-                newAnimatedLinks.push({
-                    id: `reparent-${rightGrandchild.id}`,
-                    startSource: { x: leftChild.x, y: leftChild.y }, // Old parent
-                    startTarget: { x: rightGrandchild.x, y: rightGrandchild.y },
-                    endSource: { x: node.x + 50, y: node.y + 50 }, // New parent (node's new position)
-                    endTarget: { x: rightGrandchild.x, y: rightGrandchild.y },
-                    type: 'reparent',
-                    progress: 0
-                });
+                rightGrandchild = workingNodes[rightGrandchildIndex];
             }
         }
+
+        // Prepare animated links
+        const newAnimatedLinks = AnimationUtils.createRotationAnimatedLinks(
+            node,
+            leftChild,
+            rightGrandchild,
+            'right'
+        );
 
         // Set the animated links
         setAnimatedLinks(newAnimatedLinks);
 
         // Find if the node has a parent
-        let parentIndex = -1;
-        let isLeftChild = false;
-
-        for (let i = 0; i < workingNodes.length; i++) {
-            if (workingNodes[i]?.left && workingNodes[i]?.left?.id === node.id) {
-                parentIndex = i;
-                isLeftChild = true;
-                break;
-            }
-            if (workingNodes[i]?.right && workingNodes[i]?.right?.id === node.id) {
-                parentIndex = i;
-                isLeftChild = false;
-                break;
-            }
-        }
+        const parentInfo = TreeUtils.findParentNode(workingNodes, node.id);
 
         // Calculate target positions for all nodes
-        const targetPositions = new Map<string, { x: number, y: number }>();
-
-        // Node will move down and to the right
-        targetPositions.set(node.id, { x: node.x + 50, y: node.y + 50 });
-
-        // Left child will take node's position
-        targetPositions.set(leftChild.id, { x: node.x, y: node.y });
-
-        // We don't set a target position for the grandchild (leftChild.right) anymore
-        // This allows it to stay in place during the animation
-        // The tree structure will still be updated correctly, only the visual positions change
+        const targetPositions = AnimationUtils.calculateRotationTargetPositions(node, leftChild, 'right');
 
         // Convert tree nodes to simulation nodes
-        const simNodes = createSimulationNodes(workingNodes, targetPositions);
+        const simNodes = AnimationUtils.createSimulationNodes(workingNodes, targetPositions);
 
         // Setup force simulation
         const simulation = d3.forceSimulation(simNodes as d3.SimulationNodeDatum[])
             .alphaTarget(0)
             .alphaDecay(0.03)
             .velocityDecay(0.3)
-            .force('target', createTargetForce());
+            .force('target', AnimationUtils.createTargetForce());
 
         simulationRef.current = simulation;
 
         // Handle simulation ticks for right rotation
         simulation.on('tick', () => {
-            updateNodesFromSimulation(simNodes);
+            AnimationUtils.updateNodesFromSimulation(simNodes);
 
             // Check if simulation has converged
-            if (hasSimulationConverged(simNodes)) {
+            if (AnimationUtils.hasSimulationConverged(simNodes)) {
                 simulation.stop();
                 simulationRef.current = null;
 
@@ -1201,21 +1217,7 @@ const TreeVisualizer: React.FC = () => {
                     newNodes[finalLeftChildIndex] = finalLeftChild;
 
                     // Find parent again
-                    let finalParentIndex = -1;
-                    let finalIsLeftChild = false;
-
-                    for (let i = 0; i < newNodes.length; i++) {
-                        if (newNodes[i]?.left && newNodes[i]?.left?.id === finalNode.id) {
-                            finalParentIndex = i;
-                            finalIsLeftChild = true;
-                            break;
-                        }
-                        if (newNodes[i]?.right && newNodes[i]?.right?.id === finalNode.id) {
-                            finalParentIndex = i;
-                            finalIsLeftChild = false;
-                            break;
-                        }
-                    }
+                    const finalParentInfo = TreeUtils.findParentNode(newNodes, finalNode.id);
 
                     // Update relationships
                     if (finalLeftChild.right) {
@@ -1230,11 +1232,9 @@ const TreeVisualizer: React.FC = () => {
                     finalLeftChild.right = finalNode;
 
                     // Update parent's reference if exists
-                    if (finalParentIndex !== -1) {
-                        const parent = { ...newNodes[finalParentIndex] };
-                        newNodes[finalParentIndex] = parent;
-
-                        if (finalIsLeftChild) {
+                    if (finalParentInfo) {
+                        const { parent, isLeftChild } = finalParentInfo;
+                        if (isLeftChild) {
                             parent.left = finalLeftChild;
                         } else {
                             parent.right = finalLeftChild;
@@ -1274,42 +1274,18 @@ const TreeVisualizer: React.FC = () => {
 
         setNodes(prevNodes => {
             // Create a deep copy of the nodes array
-            const updatedNodes = prevNodes.map(node => ({ ...node }));
-
-            // Create a map for quick lookups
-            const nodeMap = new Map<string, number>();
-            updatedNodes.forEach((node, index) => {
-                nodeMap.set(node.id, index);
-            });
-
-            // Find the node to delete
-            const nodeToDeleteIndex = nodeMap.get(nodeToDelete.id);
-            if (nodeToDeleteIndex === undefined) return prevNodes;
+            const updatedNodes = TreeUtils.deepCopyNodes(prevNodes);
 
             // Find the parent of the node to delete
-            let parentIndex = -1;
-            let isLeftChild = false;
-
-            for (let i = 0; i < updatedNodes.length; i++) {
-                const node = updatedNodes[i];
-                if (node.left && node.left.id === nodeToDelete.id) {
-                    parentIndex = i;
-                    isLeftChild = true;
-                    break;
-                }
-                if (node.right && node.right.id === nodeToDelete.id) {
-                    parentIndex = i;
-                    isLeftChild = false;
-                    break;
-                }
-            }
+            const parentInfo = TreeUtils.findParentNode(updatedNodes, nodeToDelete.id);
 
             // If we found a parent, update its reference
-            if (parentIndex !== -1) {
+            if (parentInfo) {
+                const { parent, isLeftChild } = parentInfo;
                 if (isLeftChild) {
-                    updatedNodes[parentIndex].left = undefined;
+                    parent.left = undefined;
                 } else {
-                    updatedNodes[parentIndex].right = undefined;
+                    parent.right = undefined;
                 }
             }
 
@@ -1334,6 +1310,86 @@ const TreeVisualizer: React.FC = () => {
         };
     }, []);
 
+    // Render links including normal, animated, and preview links
+    const renderLinks = useCallback(() => {
+        return (
+            <g className="links">
+                {/* Render normal links */}
+                {links.map(link => (
+                    <Link key={link.id} link={link} nodeAnimationComplete={nodeAnimationComplete} />
+                ))}
+
+                {/* Render animated links */}
+                {animatedLinks.map(link => (
+                    <Link key={link.id} link={link} nodeAnimationComplete={nodeAnimationComplete} />
+                ))}
+
+                {/* Render preview link if exists */}
+                {previewLink && <Link key={previewLink.id} link={previewLink} nodeAnimationComplete={nodeAnimationComplete} />}
+            </g>
+        );
+    }, [links, animatedLinks, previewLink, nodeAnimationComplete]);
+
+    // Render nodes including rotation controls
+    const renderNodes = useCallback(() => {
+        return (
+            <g className="nodes">
+                {/* Render tree nodes */}
+                {nodes.map(node => (
+                    <g key={node.id}>
+                        <Node
+                            node={node}
+                            onDragStart={handleDragStart}
+                            onDrag={handleDrag}
+                            onDragEnd={handleDragEnd}
+                            onMouseEnter={() => { }} // Remove direct hover behavior
+                            onMouseLeave={() => { }} // Remove direct hover behavior
+                            onContextMenu={handleContextMenu}
+                            isHighlighted={showRotationFor === node.id}
+                        />
+                        {showRotationFor === node.id && (
+                            <g transform={`translate(${node.x},${node.y})`}>
+                                <RotationControls
+                                    node={node}
+                                    onRotateLeft={rotateLeft}
+                                    onRotateRight={rotateRight}
+                                />
+                            </g>
+                        )}
+                    </g>
+                ))}
+            </g>
+        );
+    }, [nodes, showRotationFor, handleDragStart, handleDrag, handleDragEnd, handleContextMenu, rotateLeft, rotateRight]);
+
+    // Render preview node
+    const renderPreviewNode = useCallback(() => {
+        if (!previewNode) return null;
+
+        return (
+            <g
+                className="preview-node"
+                transform={`translate(${previewNode.x},${previewNode.y})`}
+            >
+                <circle
+                    r={20}
+                    fill="#f0f0f0"
+                    stroke="#999"
+                    strokeWidth={2}
+                    strokeDasharray="5,5"
+                />
+                <text
+                    textAnchor="middle"
+                    dy="0.3em"
+                    fontSize="12px"
+                    fill="#999"
+                >
+                    {previewNode.value}
+                </text>
+            </g>
+        );
+    }, [previewNode]);
+
     return (
         <div className="tree-visualizer">
             <h1 className="text-2xl font-bold mb-4">Binary Search Tree Visualizer</h1>
@@ -1351,71 +1407,9 @@ const TreeVisualizer: React.FC = () => {
                 onMouseMove={handleMouseMove}
                 onContextMenu={(e) => e.preventDefault()} // Prevent context menu on svg background
             >
-                <g className="links">
-                    {/* Render normal links */}
-                    {links.map(link => (
-                        <Link key={link.id} link={link} nodeAnimationComplete={nodeAnimationComplete} />
-                    ))}
-
-                    {/* Render animated links */}
-                    {animatedLinks.map(link => (
-                        <Link key={link.id} link={link} nodeAnimationComplete={nodeAnimationComplete} />
-                    ))}
-
-                    {/* Render preview link if exists */}
-                    {previewLink && <Link key={previewLink.id} link={previewLink} nodeAnimationComplete={nodeAnimationComplete} />}
-                </g>
-
-                <g className="nodes">
-                    {/* Render tree nodes */}
-                    {nodes.map(node => (
-                        <g key={node.id}>
-                            <Node
-                                node={node}
-                                onDragStart={handleDragStart}
-                                onDrag={handleDrag}
-                                onDragEnd={handleDragEnd}
-                                onMouseEnter={() => { }} // Remove direct hover behavior
-                                onMouseLeave={() => { }} // Remove direct hover behavior
-                                onContextMenu={handleContextMenu}
-                                isHighlighted={showRotationFor === node.id}
-                            />
-                            {showRotationFor === node.id && (
-                                <g transform={`translate(${node.x},${node.y})`}>
-                                    <RotationControls
-                                        node={node}
-                                        onRotateLeft={rotateLeft}
-                                        onRotateRight={rotateRight}
-                                    />
-                                </g>
-                            )}
-                        </g>
-                    ))}
-
-                    {/* Render preview node if exists */}
-                    {previewNode && (
-                        <g 
-                            className="preview-node"
-                            transform={`translate(${previewNode.x},${previewNode.y})`}
-                        >
-                            <circle
-                                r={20}
-                                fill="#f0f0f0"
-                                stroke="#999"
-                                strokeWidth={2}
-                                strokeDasharray="5,5"
-                            />
-                            <text
-                                textAnchor="middle"
-                                dy="0.3em"
-                                fontSize="12px"
-                                fill="#999"
-                            >
-                                {previewNode.value}
-                            </text>
-                        </g>
-                    )}
-                </g>
+                {renderLinks()}
+                {renderNodes()}
+                {renderPreviewNode()}
             </svg>
         </div>
     );
