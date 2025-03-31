@@ -5,9 +5,19 @@ This repo hosts tools to help tutor the COMP2521 course at UNSW.
 - Sorting Visualisation (Week 3)
 - Tree Visualisation (Week 5)
 
+## TODO:
+
+- Slow down/improve the rotation animation
+- Readjusting subtrees after a rotation while maintaining clarity of rotation simplicity.
+- Serve different tools on different routes (for quicker navigation/favouriting etc)
+- Add more AI guidance to produce more maintainable code. 
+
 ## Sorting Visualisation
 
 App shows stable vs unstable sorts
+- Insertion Sort is stable
+- Selection Sort is unstable, and the example list given produces an non-relative order of similar keys (as you'd want in a demonstration)
+- Arrows are there as a visual aid, and you can explain unstable sorting more intuitively as the "arrows crossing past each other"
 
 ## Tree Visualisation
 
@@ -49,4 +59,10 @@ This app allows tutors to create and manipulate Tree nodes visually
     - Reparented links appear after node movement is complete
 
 These features make the tool particularly effective for demonstrating binary search tree operations, helping students understand both the structural and algorithmic aspects of BST manipulations.
+
+## Notes
+
+This is also an experiment in guided LLM coding, and probably isn't a stellar example of well designed/factored code.
+This README aims to be human/LLM agnostic - that is, this doc is useful for both tutors/engineers as well as LLMs who need to parse this for e.g. requirements breakdown.
+It doesn't include guidance about how best to structure a codebase, since that's not human relevant content, so that guidance exists in .cursorrules in some form.
 
