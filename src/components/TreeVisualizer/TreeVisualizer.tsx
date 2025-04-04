@@ -180,7 +180,7 @@ const TreeVisualizer: React.FC = () => {
 
         // If we're not close enough for rotation, check for preview node
         // Using a minimum distance of 40 (to avoid overlap with rotation) and max of 100
-        const nodeForPreview = findCloseNode(x, y, 40, 100);
+        const nodeForPreview = findCloseNode(x, y, 40, 130);
 
         // Clear rotation controls since we're not close enough to a node
         setShowRotationFor(null);
@@ -257,11 +257,11 @@ const TreeVisualizer: React.FC = () => {
                 type: 'preview'
             });
         } else {
-            // Clear preview if not near a node
+            // Clear preview if not near a node and not near existing preview
             setPreviewNode(null);
             setPreviewLink(null);
         }
-    }, [findCloseNode, nodes, getDefaultChildNodeValue]);
+    }, [findCloseNode, nodes, getDefaultChildNodeValue, previewNode]);
 
     // Create a node when clicking
     const handleClick = useCallback((event: React.MouseEvent<SVGSVGElement>) => {
